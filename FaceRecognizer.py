@@ -1,207 +1,331 @@
+"""
+Face Recognition Module
+High-level face recognition system combining detection, embedding, and matching.
+"""
 import os
-import cv2
 import numpy as np
-from mtcnn import MTCNN
-from keras_facenet import FaceNet
-from sklearn.metrics.pairwise import cosine_similarity
+from pathlib import Path
 from tqdm import tqdm
+from typing import Optional, Tuple, List
 
-# Public directories
+from FaceDetector import FaceDetector
+from FaceEmbedder import FaceEmbedder, EmbeddingMatcher
+from FaceStorage import FaceStorage, ImageLoader
+
+
+# Configuration
 MODELS_DIR = r"C:\D\programming\ML\TinyExpirements\PersonExists\AttendanceTaker\Models"
-CONFIDENCE_THRESHOLD = 0.5
+FACES_DIR = r"C:\D\programming\ML\TinyExpirements\PersonExists\AttendanceTaker\Faces"
+DEFAULT_CONFIDENCE_THRESHOLD = 0.5
+
+
+class FaceRecognitionModel:
+    """Stores and manages trained face recognition data."""
+    
+    def __init__(self):
+        """Initialize empty model."""
+        self.embeddings: Optional[np.ndarray] = None
+        self.labels: Optional[np.ndarray] = None
+    
+    def add_training_data(
+        self, 
+        embeddings: List[np.ndarray], 
+        labels: List[str]
+    ):
+        """
+        Add training data to the model.
+        
+        Args:
+            embeddings: List of face embeddings
+            labels: List of corresponding person names
+        """
+        if not embeddings or not labels:
+            raise ValueError("Embeddings and labels cannot be empty")
+        
+        if len(embeddings) != len(labels):
+            raise ValueError("Number of embeddings must match number of labels")
+        
+        self.embeddings = np.array(embeddings)
+        self.labels = np.array(labels)
+    
+    def save(self, directory: str, model_name: str = "face_model"):
+        """
+        Save model to disk.
+        
+        Args:
+            directory: Directory to save model files
+            model_name: Base name for model files
+        """
+        if not self.is_trained():
+            raise RuntimeError("Cannot save untrained model")
+        
+        os.makedirs(directory, exist_ok=True)
+        
+        embeddings_path = Path(directory) / f"{model_name}_embeddings.npy"
+        labels_path = Path(directory) / f"{model_name}_labels.npy"
+        
+        np.save(str(embeddings_path), self.embeddings)
+        np.save(str(labels_path), self.labels)
+    
+    def load(self, directory: str, model_name: str = "face_model") -> bool:
+        """
+        Load model from disk.
+        
+        Args:
+            directory: Directory containing model files
+            model_name: Base name of model files
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        embeddings_path = Path(directory) / f"{model_name}_embeddings.npy"
+        labels_path = Path(directory) / f"{model_name}_labels.npy"
+        
+        if not embeddings_path.exists() or not labels_path.exists():
+            return False
+        
+        self.embeddings = np.load(str(embeddings_path))
+        self.labels = np.load(str(labels_path))
+        
+        return True
+    
+    def is_trained(self) -> bool:
+        """Check if model has been trained or loaded."""
+        return self.embeddings is not None and self.labels is not None
+    
+    def get_training_stats(self) -> dict:
+        """Get statistics about training data."""
+        if not self.is_trained():
+            return {"total_faces": 0, "total_people": 0}
+        
+        return {
+            "total_faces": len(self.embeddings),
+            "total_people": len(np.unique(self.labels))
+        }
 
 
 class FaceRecognizer:
-    """Handles face recognition using MTCNN and FaceNet."""
+    """Main face recognition system."""
     
-    def __init__(self):
-        self.detector = MTCNN()
-        self.embedder = FaceNet()
-        self.embeddings = None
-        self.labels = None
+    def __init__(
+        self, 
+        confidence_threshold: float = DEFAULT_CONFIDENCE_THRESHOLD
+    ):
+        """
+        Initialize face recognizer.
         
-        # Ensure models directory exists
-        os.makedirs(MODELS_DIR, exist_ok=True)
+        Args:
+            confidence_threshold: Minimum confidence for recognition
+        """
+        self.detector = FaceDetector()
+        self.embedder = FaceEmbedder()
+        self.matcher = EmbeddingMatcher()
+        self.model = FaceRecognitionModel()
+        self.confidence_threshold = confidence_threshold
     
-    def _extract_face_from_box(self, image, box):
-        """Extract and resize face from bounding box."""
-        x, y, w, h = box
-        x1, y1 = max(0, x), max(0, y)
-        x2, y2 = x1 + w, y1 + h
-        face = image[y1:y2, x1:x2]
+    def train_from_directory(
+        self, 
+        faces_directory: str
+    ) -> Tuple[int, int]:
+        """
+        Train the recognizer on a directory of labeled faces.
         
-        if face.size == 0:
-            return None
-        
-        face = cv2.resize(face, (160, 160))
-        return face
-    
-    def _get_face_embedding(self, face_image):
-        """Generate embedding for a face image."""
-        if face_image is None:
-            return None
-        
-        embedding = self.embedder.embeddings([face_image])[0]
-        return embedding
-    
-    def _load_person_faces(self, person_dir, person_name):
-        """Load all face images for a person and extract embeddings."""
-        person_embeddings = []
-        
-        for img_name in os.listdir(person_dir):
-            img_path = os.path.join(person_dir, img_name)
-            img = cv2.imread(img_path)
+        Args:
+            faces_directory: Directory with person subdirectories
             
-            if img is None:
-                continue
-            
-            # Detect faces using MTCNN
-            img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-            results = self.detector.detect_faces(img_rgb)
-            
-            if len(results) == 0:
-                continue
-            
-            # Take biggest face
-            face_data = max(results, key=lambda r: r['box'][2] * r['box'][3])
-            face = self._extract_face_from_box(img, face_data['box'])
-            
-            if face is None:
-                continue
-            
-            # Get embedding
-            embedding = self._get_face_embedding(face)
-            if embedding is not None:
-                person_embeddings.append(embedding)
+        Returns:
+            Tuple of (total_faces, total_people)
+        """
+        trainer = FaceRecognitionTrainer(
+            faces_directory=faces_directory,
+            detector=self.detector,
+            embedder=self.embedder
+        )
         
-        return person_embeddings
+        embeddings, labels = trainer.train()
+        self.model.add_training_data(embeddings, labels)
+        
+        stats = self.model.get_training_stats()
+        return stats["total_faces"], stats["total_people"]
     
-    def train_from_directory(self, faces_dir):
-        """Train face recognition model from directory of labeled faces."""
-        embeddings_list = []
-        labels_list = []
+    def save_model(self, directory: str = MODELS_DIR):
+        """Save trained model to disk."""
+        self.model.save(directory)
+    
+    def load_model(self, directory: str = MODELS_DIR) -> bool:
+        """Load trained model from disk."""
+        return self.model.load(directory)
+    
+    def has_trained_model(self) -> bool:
+        """Check if model is trained."""
+        return self.model.is_trained()
+    
+    def recognize_face(
+        self, 
+        face_image: np.ndarray
+    ) -> Tuple[str, float]:
+        """
+        Recognize a person from their face image.
         
-        if not os.path.exists(faces_dir):
-            raise RuntimeError(f"Directory {faces_dir} does not exist")
-        
-        person_folders = [d for d in os.listdir(faces_dir) 
-                         if os.path.isdir(os.path.join(faces_dir, d))]
-        
-        if len(person_folders) == 0:
-            raise RuntimeError(f"No person folders found in {faces_dir}")
-        
-        print(f"\n=== Training on {len(person_folders)} people ===")
-        
-        for person_name in tqdm(person_folders, desc="Processing people"):
-            person_dir = os.path.join(faces_dir, person_name)
-            person_embeddings = self._load_person_faces(person_dir, person_name)
+        Args:
+            face_image: Face image as numpy array
             
-            # Add all embeddings for this person
-            for embedding in person_embeddings:
-                embeddings_list.append(embedding)
-                labels_list.append(person_name)
-        
-        if len(embeddings_list) == 0:
-            raise RuntimeError("No faces found for training")
-        
-        # Store as numpy arrays
-        self.embeddings = np.array(embeddings_list)
-        self.labels = np.array(labels_list)
-        
-        print(f"Training complete: {len(self.embeddings)} face embeddings from {len(person_folders)} people")
-        return len(self.embeddings), len(person_folders)
-    
-    def save_model(self, filename="face_model"):
-        """Save trained embeddings and labels to disk."""
-        if self.embeddings is None or self.labels is None:
-            raise RuntimeError("No trained model to save. Train first.")
-        
-        embeddings_path = os.path.join(MODELS_DIR, f"{filename}_embeddings.npy")
-        labels_path = os.path.join(MODELS_DIR, f"{filename}_labels.npy")
-        
-        np.save(embeddings_path, self.embeddings)
-        np.save(labels_path, self.labels)
-        
-        print(f"Model saved to {MODELS_DIR}/")
-        return embeddings_path, labels_path
-    
-    def load_model(self, filename="face_model"):
-        """Load trained embeddings and labels from disk."""
-        embeddings_path = os.path.join(MODELS_DIR, f"{filename}_embeddings.npy")
-        labels_path = os.path.join(MODELS_DIR, f"{filename}_labels.npy")
-        
-        if not os.path.exists(embeddings_path) or not os.path.exists(labels_path):
-            return False
-        
-        self.embeddings = np.load(embeddings_path)
-        self.labels = np.load(labels_path)
-        
-        print(f"Model loaded: {len(self.embeddings)} embeddings")
-        return True
-    
-    def has_trained_model(self):
-        """Check if model is trained or loaded."""
-        return self.embeddings is not None and self.labels is not None
-    
-    def _find_best_match(self, embedding, threshold=CONFIDENCE_THRESHOLD):
-        """Find best matching person for an embedding."""
-        if not self.has_trained_model():
+        Returns:
+            Tuple of (person_name, confidence_score)
+        """
+        if not self.model.is_trained():
             return "Unknown", 0.0
         
-        similarities = cosine_similarity([embedding], self.embeddings)[0]
-        best_idx = np.argmax(similarities)
-        best_score = similarities[best_idx]
-        
-        if best_score >= threshold:
-            return self.labels[best_idx], best_score
-        else:
-            return "Unknown", best_score
-    
-    def predict_face(self, face_image, threshold=CONFIDENCE_THRESHOLD):
-        """Predict name for a single face image."""
-        embedding = self._get_face_embedding(face_image)
+        # Generate embedding
+        embedding = self.embedder.generate_embedding(face_image)
         
         if embedding is None:
             return "Unknown", 0.0
         
-        name, confidence = self._find_best_match(embedding, threshold)
-        return name, confidence
-    
-    def predict_from_box(self, image, box, threshold=CONFIDENCE_THRESHOLD):
-        """Predict name from image and bounding box coordinates."""
-        # Convert YOLO-style box (x1, y1, x2, y2) to MTCNN-style (x, y, w, h)
-        x1, y1, x2, y2 = box
-        mtcnn_box = (x1, y1, x2 - x1, y2 - y1)
+        # Find best match
+        best_idx, similarity = self.matcher.find_best_match(
+            embedding,
+            self.model.embeddings,
+            self.confidence_threshold
+        )
         
-        face = self._extract_face_from_box(image, mtcnn_box)
+        if best_idx == -1:
+            return "Unknown", similarity
+        
+        return str(self.model.labels[best_idx]), similarity
+    
+    def recognize_from_bounding_box(
+        self,
+        image: np.ndarray,
+        box: Tuple[int, int, int, int]
+    ) -> Tuple[str, float]:
+        """
+        Recognize person from image and bounding box.
+        
+        Args:
+            image: Full image
+            box: Face bounding box (x1, y1, x2, y2)
+            
+        Returns:
+            Tuple of (person_name, confidence_score)
+        """
+        face = self.detector.extract_face_region(
+            image, 
+            box, 
+            target_size=FaceEmbedder.FACENET_INPUT_SIZE
+        )
         
         if face is None:
             return "Unknown", 0.0
         
-        return self.predict_face(face, threshold)
+        return self.recognize_face(face)
 
 
-if __name__ == "__main__":
-    # Example usage
-    recognizer = FaceRecognizer()
+class FaceRecognitionTrainer:
+    """Handles the training process for face recognition."""
     
-    # Train on faces directory
-    try:
-        num_faces, num_people = recognizer.train_from_directory("Faces")
-        recognizer.save_model()
-        print(f"\nTrained on {num_faces} faces from {num_people} people")
+    def __init__(
+        self,
+        faces_directory: str,
+        detector: FaceDetector,
+        embedder: FaceEmbedder
+    ):
+        """
+        Initialize trainer.
         
-        # Test prediction
-        test_img_path = "test_image.jpg"
-        if os.path.exists(test_img_path):
-            test_img = cv2.imread(test_img_path)
-            test_img_rgb = cv2.cvtColor(test_img, cv2.COLOR_BGR2RGB)
-            results = recognizer.detector.detect_faces(test_img_rgb)
-            
-            for res in results:
-                face = recognizer._extract_face_from_box(test_img, res['box'])
-                name, score = recognizer.predict_face(face)
-                print(f"Detected: {name} (confidence: {score:.2f})")
+        Args:
+            faces_directory: Directory containing person subdirectories
+            detector: Face detector instance
+            embedder: Face embedder instance
+        """
+        self.faces_directory = Path(faces_directory)
+        self.detector = detector
+        self.embedder = embedder
+        self.image_loader = ImageLoader()
     
-    except Exception as e:
-        print(f"Error: {e}")
+    def train(self) -> Tuple[List[np.ndarray], List[str]]:
+        """
+        Train on all faces in the directory.
+        
+        Returns:
+            Tuple of (embeddings_list, labels_list)
+        """
+        if not self.faces_directory.exists():
+            raise RuntimeError(f"Directory does not exist: {self.faces_directory}")
+        
+        person_folders = self._get_person_folders()
+        
+        if not person_folders:
+            raise RuntimeError(f"No person folders found in {self.faces_directory}")
+        
+        print(f"\n=== Training on {len(person_folders)} people ===")
+        
+        all_embeddings = []
+        all_labels = []
+        
+        for person_name in tqdm(person_folders, desc="Processing people"):
+            embeddings = self._process_person_folder(person_name)
+            
+            for embedding in embeddings:
+                all_embeddings.append(embedding)
+                all_labels.append(person_name)
+        
+        if not all_embeddings:
+            raise RuntimeError("No valid face embeddings generated")
+        
+        print(f"Training complete: {len(all_embeddings)} embeddings from {len(person_folders)} people")
+        
+        return all_embeddings, all_labels
+    
+    def _get_person_folders(self) -> List[str]:
+        """Get list of person folder names."""
+        return [
+            d.name for d in self.faces_directory.iterdir()
+            if d.is_dir()
+        ]
+    
+    def _process_person_folder(self, person_name: str) -> List[np.ndarray]:
+        """
+        Process all images in a person's folder.
+        
+        Args:
+            person_name: Name of the person
+            
+        Returns:
+            List of embeddings for this person
+        """
+        person_dir = self.faces_directory / person_name
+        embeddings = []
+        
+        # Load all images
+        images = self.image_loader.load_all_images_from_directory(str(person_dir))
+        
+        for filepath, image in images:
+            # Detect face
+            boxes = self.detector.detect_faces(image)
+            
+            if not boxes:
+                continue
+            
+            # Use largest face if multiple detected
+            box = self.detector._get_largest_box(boxes)
+            face = self.detector.extract_face_region(
+                image, 
+                box,
+                target_size=FaceEmbedder.FACENET_INPUT_SIZE
+            )
+            
+            if face is None:
+                continue
+            
+            # Generate embedding
+            embedding = self.embedder.generate_embedding(face)
+            
+            if embedding is not None:
+                embeddings.append(embedding)
+        
+        return embeddings
+
+
+# Maintain backward compatibility
+CONFIDENCE_THRESHOLD = DEFAULT_CONFIDENCE_THRESHOLD

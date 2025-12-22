@@ -1,6 +1,6 @@
 import os
 import zipfile
-import gdown
+import gdown #type:ignore
 from pathlib import Path
 
 def download_and_extract_zips(folder_url, output_dir="downloads"):
@@ -93,7 +93,7 @@ if __name__ == "__main__":
     url = "https://drive.google.com/drive/folders/1pZBcKW5CpQORjYXAnPZrHHeV0MtWNTHx"
     
     # Download and extract all zip files
-    download_and_extract_zips(url, output_dir="Faces")
+    download_and_extract_zips(url, output_dir="Downloaded_Faces")
     
     print("\nAll files have been downloaded and extracted!")
     print("Check the 'Students' folder for the extracted contents.")

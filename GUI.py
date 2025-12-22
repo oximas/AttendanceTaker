@@ -385,7 +385,7 @@ class CameraApp:
             self._update_status("Capturing image...", "#3498db")
             
             # Perform detection
-            counter = PeopleCounter(url=URL, face_recognizer=self.face_recognizer)
+            counter = PeopleCounter(camera_index=URL, face_recognizer=self.face_recognizer)
             captured_img, count, boxes, _ = counter.capture_and_count()
             
             if captured_img is None:
