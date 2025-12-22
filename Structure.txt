@@ -1,0 +1,38 @@
+Attendance_Tracker/
+│
+├── config.py                          # NEW: All constants in one place
+│
+├── core/                              # NEW: Core business logic
+│   ├── __init__.py
+│   ├── CameraManager.py              # NEW: Camera operations only
+│   ├── FaceDetector.py               # NEW: Face detection only
+│   ├── FaceImageProcessor.py         # NEW: Image processing only
+│   └── FaceRecognizer_Refactored.py  # REFACTORED: Separated concerns
+│
+├── services/                          # NEW: Application services
+│   ├── __init__.py
+│   ├── FaceRecognitionService.py     # NEW: Facade for complex operations
+│   └── PeopleCounter_Refactored.py   # REFACTORED: Now lightweight
+│
+├── storage/                           # NEW: File I/O operations
+│   ├── __init__.py
+│   └── FaceStorage.py                # NEW: Face image storage
+│
+├── ui/                                # NEW: All UI components
+│   ├── __init__.py
+│   ├── UIComponents.py               # NEW: Reusable UI widgets
+│   └── GUI_Refactored.py             # REFACTORED: Clean separation
+│
+├── utils/                             # NEW: Utilities
+│   ├── __init__.py
+│   └── ImageDownloader_Refactored.py # REFACTORED: Separated concerns
+│
+├── OLD_CODE/                          # BACKUP: Move old files here
+│   ├── PeopleCounter.py              # Original version
+│   ├── FaceRecognizer.py             # Original version
+│   ├── GUI.py                        # Original version
+│   └── ImageDownloader.py            # Original version
+│
+├── Faces/                             # Data: Face images (unchanged)
+├── Models/                            # Data: Trained models (unchanged)
+└── downloads/                         # Data: Download temp files
