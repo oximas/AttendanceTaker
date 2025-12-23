@@ -1,6 +1,7 @@
 """
+FaceDetector.py
 Face detection module using MTCNN.
-Handles face detection in images.
+Handles face detection in images and returns bounding boxes in (x1, y1, x2, y2) format.
 """
 
 import cv2
@@ -31,8 +32,12 @@ class FaceDetector:
         boxes = []
         for res in results:
             x, y, w, h = res['box']
-            # Convert to (x1, y1, x2, y2) format
-            boxes.append((x, y, x + w, y + h))
+            # Convert MTCNN (x, y, w, h) to (x1, y1, x2, y2) format
+            x1 = x
+            y1 = y
+            x2 = x + w
+            y2 = y + h
+            boxes.append((x1, y1, x2, y2))
         
         return len(boxes), boxes
     
@@ -45,6 +50,7 @@ class FaceDetector:
             
         Returns:
             tuple: (best_frame, face_count, bounding_boxes)
+                   bounding_boxes in (x1, y1, x2, y2) format
         """
         detections = [self.detect(frame) for frame in frames]
         counts = [count for count, _ in detections]
@@ -67,7 +73,7 @@ class FaceDetector:
             image: BGR or RGB image
             
         Returns:
-            dict: Face detection result with 'box' key, or None if no face found
+            dict: Face detection result with 'box' key in (x, y, w, h) format, or None if no face found
         """
         image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB) if len(image.shape) == 3 else image
         results = self.detector.detect_faces(image_rgb)
@@ -76,5 +82,6 @@ class FaceDetector:
             return None
         
         # Return largest face by area
+        # Note: This returns MTCNN format (x, y, w, h) for compatibility
         largest = max(results, key=lambda r: r['box'][2] * r['box'][3])
         return largest

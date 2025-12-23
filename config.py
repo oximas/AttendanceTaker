@@ -1,6 +1,7 @@
 """
+config.py
 Central configuration file for Face Recognition System.
-All constants and configuration parameters in one place.
+Contains all system parameters, paths, colors, and external service URLs.
 """
 
 import os
@@ -8,7 +9,11 @@ import os
 # Directory Paths
 FACES_DIR = "Faces"
 MODELS_DIR = "Models"
-DOWNLOADS_DIR = "downloads"
+DOWNLOADS_DIR = "Downloaded_Faces"
+
+# Google Drive Configuration
+# Replace this URL with your actual Google Drive folder URL
+GOOGLE_DRIVE_FOLDER_URL = "https://drive.google.com/drive/folders/1pZBcKW5CpQORjYXAnPZrHHeV0MtWNTHx"
 
 # Face Recognition Parameters
 FACE_IMAGE_SIZE = (160, 160)  # Required input size for FaceNet
@@ -79,3 +84,4 @@ FONT_STATUS = ("Helvetica", 10)
 # Ensure directories exist
 os.makedirs(FACES_DIR, exist_ok=True)
 os.makedirs(MODELS_DIR, exist_ok=True)
+os.makedirs(DOWNLOADS_DIR, exist_ok=True)

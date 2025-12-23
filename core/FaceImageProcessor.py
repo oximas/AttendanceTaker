@@ -1,6 +1,7 @@
 """
+FaceImageProcessor.py
 Face image processing module.
-Handles cropping, resizing, and visual annotations.
+Handles cropping, resizing, and visual annotations for face images.
 """
 
 import cv2
@@ -23,23 +24,28 @@ class FaceImageProcessor:
         
         Args:
             image: Source image
-            box: Bounding box (x, y, w, h) or (x1, y1, x2, y2)
+            box: Bounding box - either (x1, y1, x2, y2) or (x, y, w, h) from MTCNN dict
             
         Returns:
             Cropped face image or None if invalid
         """
         height, width = image.shape[:2]
         
-        # Handle both box formats
-        if len(box) == 4:
-            # Check if it's (x, y, w, h) or (x1, y1, x2, y2)
-            x1, y1, param3, param4 = box
-            if param3 > width or param4 > height:  # Likely (x1, y1, x2, y2)
-                x2, y2 = param3, param4
-            else:  # Likely (x, y, w, h)
-                x2, y2 = x1 + param3, y1 + param4
-        else:
+        if len(box) != 4:
             return None
+        
+        x1, y1, param3, param4 = box
+        
+        # If param3 and param4 are greater than x1 and y1, it's (x1, y1, x2, y2)
+        # Otherwise it's (x, y, w, h)
+        if param3 > x1 and param4 > y1:
+            # (x1, y1, x2, y2) format
+            x2 = param3
+            y2 = param4
+        else:
+            # (x, y, w, h) format - convert to (x1, y1, x2, y2)
+            x2 = x1 + param3
+            y2 = y1 + param4
         
         # Clamp to image boundaries
         x1 = max(0, int(x1))
@@ -47,6 +53,11 @@ class FaceImageProcessor:
         x2 = min(width, int(x2))
         y2 = min(height, int(y2))
         
+        # Ensure valid coordinates
+        if x2 <= x1 or y2 <= y1:
+            return None
+        
+        # Crop using [y1:y2, x1:x2] - THIS IS THE KEY FIX
         face = image[y1:y2, x1:x2]
         return face if face.size > 0 else None
     
@@ -73,7 +84,7 @@ class FaceImageProcessor:
         
         Args:
             image: Source image
-            boxes: List of bounding boxes
+            boxes: List of bounding boxes in (x1, y1, x2, y2) format
             
         Returns:
             List of cropped face images
@@ -92,7 +103,7 @@ class FaceImageProcessor:
         
         Args:
             image: Image to draw on
-            boxes: List of bounding boxes (x1, y1, x2, y2)
+            boxes: List of bounding boxes in (x1, y1, x2, y2) format
             color: Box color in BGR
             thickness: Line thickness
             
@@ -143,7 +154,7 @@ class FaceImageProcessor:
         
         Args:
             image: Image to annotate
-            boxes: List of bounding boxes
+            boxes: List of bounding boxes in (x1, y1, x2, y2) format
             labels: List of label strings (same length as boxes)
             
         Returns:
