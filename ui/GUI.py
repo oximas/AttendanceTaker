@@ -232,6 +232,9 @@ class CameraApp:
     
     def _start_live_feed(self):
         """Start live camera feed with face detection."""
+        self.detecting = False
+        self.latest_boxes = []
+        self.latest_count = 0
         self.service.counter.camera.start_stream()
         self.live_feed_active = True
         self.live_feed_thread = threading.Thread(target=self._live_feed_loop, daemon=True)
@@ -245,28 +248,35 @@ class CameraApp:
         self.service.counter.camera.stop_stream()
     
     def _live_feed_loop(self):
-        """Live feed loop with real-time face detection (boxes only, no recognition)."""
         while self.live_feed_active:
             try:
-                # Get current frame from camera
                 frame = self.service.counter.camera.get_current_frame()
-                
-                if frame is not None:
-                    # Detect faces (no recognition)
-                    count, boxes = self.service.counter.detector.detect(frame)
-                    # Draw bounding boxes only (no labels)
-                    annotated = self.service.counter.processor.draw_bounding_boxes(frame, boxes)
-                    
-                    # Update display
-                    pil_image = self._convert_to_pil(annotated)
-                    self.root.after(0, lambda img=pil_image, cnt=count: 
-                                self._update_live_display(img, cnt))
-                
-                #time.sleep(0.03)  # Small delay to prevent overwhelming the UI
-                
+                if frame is None:
+                    continue
+
+                # Launch detection IF not already running
+                if not self.detecting:
+                    self.detecting = True
+                    threading.Thread(
+                        target=self._run_detection,
+                        args=(frame.copy(),),
+                        daemon=True
+                    ).start()
+
+                # Always draw last known boxes
+                annotated = self.service.counter.processor.draw_bounding_boxes(
+                    frame, self.latest_boxes
+                )
+
+                pil_image = self._convert_to_pil(annotated)
+                self.root.after(
+                    0,
+                    lambda img=pil_image, cnt=self.latest_count:
+                    self._update_live_display(img, cnt)
+                )
+
             except Exception as e:
                 print(f"Live feed error: {e}")
-                #time.sleep(0.1)
     
     def _update_live_display(self, pil_image, count):
         """Update the live feed display."""
@@ -277,7 +287,13 @@ class CameraApp:
                 text=f"Live Feed - People Count: {count}",
                 fg=color
             )
-    
+    def _run_detection(self, frame):
+        try:
+            count, boxes = self.service.counter.detector.detect(frame)
+            self.latest_boxes = boxes
+            self.latest_count = count
+        finally:
+            self.detecting = False
     def _convert_to_pil(self, cv_image):
         """Convert OpenCV image to PIL."""
         if isinstance(cv_image, np.ndarray):
