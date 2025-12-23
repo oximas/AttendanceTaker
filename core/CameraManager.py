@@ -1,28 +1,36 @@
 """
-Camera management module.
-Handles camera initialization, frame capture, and cleanup.
+CameraManager.py
+Camera management module with live streaming support.
+Handles camera initialization, frame capture, continuous streaming, and cleanup.
 """
 
 import cv2
-from config import DEFAULT_CAMERA_INDEX, FLIP_HORIZONTAL
+import threading
+import time
+from config import CAMERA_URL, FLIP_HORIZONTAL
 
 
 class CameraManager:
-    """Manages camera operations with automatic resource cleanup."""
+    """Manages camera operations with automatic resource cleanup and live streaming."""
     
-    def __init__(self, camera_index=DEFAULT_CAMERA_INDEX):
-        self.camera_index = camera_index
+    def __init__(self, camera_source=CAMERA_URL):
+        self.camera_source = camera_source
         self.cap = None
+        self.is_streaming = False
+        self.stream_thread = None
+        self.current_frame = None
+        self.frame_lock = threading.Lock()
     
     def open(self):
         """Open camera connection."""
         if self.cap is None or not self.cap.isOpened():
-            self.cap = cv2.VideoCapture(self.camera_index)
+            self.cap = cv2.VideoCapture(self.camera_source)
             if not self.cap.isOpened():
-                raise RuntimeError(f"Failed to open camera {self.camera_index}")
+                raise RuntimeError(f"Failed to open camera {self.camera_source}")
     
     def close(self):
         """Release camera resources."""
+        self.stop_stream()
         if self.cap is not None:
             self.cap.release()
             self.cap = None
@@ -78,6 +86,44 @@ class CameraManager:
             raise RuntimeError("No frames captured successfully")
         
         return frames
+    
+    def start_stream(self):
+        """Start continuous video streaming in background thread."""
+        if self.is_streaming:
+            return
+        
+        self.is_streaming = True
+        self.stream_thread = threading.Thread(target=self._stream_loop, daemon=True)
+        self.stream_thread.start()
+    
+    def stop_stream(self):
+        """Stop continuous video streaming."""
+        self.is_streaming = False
+        if self.stream_thread is not None:
+            self.stream_thread.join(timeout=2)
+            self.stream_thread = None
+    
+    def _stream_loop(self):
+        """Internal streaming loop running in background thread."""
+        self.open()
+        
+        while self.is_streaming:
+            ret, frame = self.cap.read()
+            if ret and frame is not None:
+                frame = cv2.flip(frame, FLIP_HORIZONTAL)
+                
+                with self.frame_lock:
+                    self.current_frame = frame.copy()
+    
+    def get_current_frame(self):
+        """
+        Get the most recent frame from live stream.
+        
+        Returns:
+            numpy.ndarray: Current frame or None if no frame available
+        """
+        with self.frame_lock:
+            return self.current_frame.copy() if self.current_frame is not None else None
     
     def __enter__(self):
         """Context manager entry."""

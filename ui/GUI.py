@@ -1,16 +1,18 @@
 """
 GUI.py
-Main GUI application for face detection, recognition, and training.
-Provides buttons for capturing images, downloading/processing student photos, and training the model.
+Main GUI application with live camera feed and face detection.
+Shows live video stream with real-time bounding boxes in main window.
+Captured images with recognition results open in external windows.
 """
 
 import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext
-from PIL import Image
+from PIL import Image, ImageTk
 import cv2
 import numpy as np
 import os
 import threading
+import time
 
 from services.FaceRecognitionService import FaceRecognitionService
 from services.FaceExtractionPipeline import FaceExtractionPipeline
@@ -20,7 +22,8 @@ from config import (
     WINDOW_WIDTH, WINDOW_HEIGHT, COLOR_PRIMARY_BG,
     COLOR_SUCCESS, COLOR_WARNING, COLOR_ERROR, COLOR_INFO,
     COLOR_PURPLE, COLOR_TEAL, FONT_TITLE, FONT_SUBTITLE,
-    DEFAULT_CAMERA_INDEX, DOWNLOADS_DIR, GOOGLE_DRIVE_FOLDER_URL
+    CAMERA_URL, DOWNLOADS_DIR, GOOGLE_DRIVE_FOLDER_URL,
+    CAPTURE_WINDOW_WIDTH, CAPTURE_WINDOW_HEIGHT, CAPTURE_FRAME_COUNT
 )
 
 
@@ -87,23 +90,71 @@ class ProcessingDialog:
         self.dialog.destroy()
 
 
+class CaptureWindow:
+    """External window to display captured and annotated images."""
+    
+    def __init__(self, parent, image, title="Captured Image"):
+        self.window = tk.Toplevel(parent)
+        self.window.title(title)
+        self.window.geometry(f"{CAPTURE_WINDOW_WIDTH}x{CAPTURE_WINDOW_HEIGHT}")
+        self.window.configure(bg=COLOR_PRIMARY_BG)
+        
+        # Title
+        tk.Label(
+            self.window,
+            text=title,
+            font=FONT_TITLE,
+            bg=COLOR_PRIMARY_BG,
+            fg="white",
+            pady=10
+        ).pack()
+        
+        # Image display
+        self.image_label = tk.Label(self.window, bg=COLOR_PRIMARY_BG)
+        self.image_label.pack(expand=True, fill=tk.BOTH, padx=20, pady=20)
+        
+        # Display image
+        self.show_image(image)
+    
+    def show_image(self, pil_image):
+        """Display PIL image in window."""
+        if pil_image is None:
+            print("image is none")
+            return
+        
+        # Resize to fit window
+        img_copy = pil_image.copy()
+        img_copy.thumbnail(
+            (CAPTURE_WINDOW_WIDTH - 40, CAPTURE_WINDOW_HEIGHT - 80),
+            Image.Resampling.LANCZOS
+        )
+        
+        self.photo = ImageTk.PhotoImage(img_copy)
+        self.image_label.config(image=self.photo)
+
+
 class CameraApp:
-    """Main application for face detection and recognition."""
+    """Main application with live camera feed and face detection."""
     
     def __init__(self, root):
         self.root = root
-        self.service = FaceRecognitionService(DEFAULT_CAMERA_INDEX)
-        self.current_result = None  # Stores latest detection result
+        self.service = FaceRecognitionService(CAMERA_URL)
+        self.current_result = None
+        
+        self.live_feed_active = True
+        self.live_feed_thread = None
         
         self._setup_window()
         self._create_ui()
         self._check_initial_state()
+        self._start_live_feed()
     
     def _setup_window(self):
         """Configure main window."""
         self.root.title("People Detection Camera")
         self.root.geometry(f"{WINDOW_WIDTH}x{WINDOW_HEIGHT}")
         self.root.configure(bg=COLOR_PRIMARY_BG)
+        self.root.protocol("WM_DELETE_WINDOW", self._on_close)
     
     def _create_ui(self):
         """Create all UI components."""
@@ -117,7 +168,7 @@ class CameraApp:
         """Create title label."""
         tk.Label(
             self.root,
-            text="People Detection System",
+            text="People Detection System - Live Feed",
             font=FONT_TITLE,
             bg=COLOR_PRIMARY_BG,
             fg="white",
@@ -133,7 +184,7 @@ class CameraApp:
             self._on_capture, COLOR_INFO, 0
         )
         self.main_panel.add_button(
-            "save_image", "Save Image",
+            "save_image", "Save Current Capture",
             self._on_save_image, COLOR_SUCCESS, 1, enabled=False
         )
         self.main_panel.add_button(
@@ -154,10 +205,6 @@ class CameraApp:
             "train", "Train Model",
             self._on_train_model, COLOR_PURPLE, 0, enabled=False
         )
-        self.model_panel.add_button(
-            "predict", "Predict Faces",
-            self._on_predict_faces, COLOR_TEAL, 1
-        )
     
     def _create_count_label(self):
         """Create people count label."""
@@ -165,7 +212,7 @@ class CameraApp:
         
         self.count_label = tk.Label(
             self.root,
-            text="People Count: 0",
+            text="Live Feed - People Count: 0",
             font=FONT_SUBTITLE,
             bg=COLOR_PRIMARY_BG,
             fg=COLOR_TEXT_SECONDARY,
@@ -183,6 +230,54 @@ class CameraApp:
                 COLOR_SUCCESS
             )
     
+    def _start_live_feed(self):
+        """Start live camera feed with face detection."""
+        self.service.counter.camera.start_stream()
+        self.live_feed_active = True
+        self.live_feed_thread = threading.Thread(target=self._live_feed_loop, daemon=True)
+        self.live_feed_thread.start()
+    
+    def _stop_live_feed(self):
+        """Stop live camera feed."""
+        self.live_feed_active = False
+        if self.live_feed_thread:
+            self.live_feed_thread.join(timeout=2)
+        self.service.counter.camera.stop_stream()
+    
+    def _live_feed_loop(self):
+        """Live feed loop with real-time face detection (boxes only, no recognition)."""
+        while self.live_feed_active:
+            try:
+                # Get current frame from camera
+                frame = self.service.counter.camera.get_current_frame()
+                
+                if frame is not None:
+                    # Detect faces (no recognition)
+                    count, boxes = self.service.counter.detector.detect(frame)
+                    # Draw bounding boxes only (no labels)
+                    annotated = self.service.counter.processor.draw_bounding_boxes(frame, boxes)
+                    
+                    # Update display
+                    pil_image = self._convert_to_pil(annotated)
+                    self.root.after(0, lambda img=pil_image, cnt=count: 
+                                self._update_live_display(img, cnt))
+                
+                #time.sleep(0.03)  # Small delay to prevent overwhelming the UI
+                
+            except Exception as e:
+                print(f"Live feed error: {e}")
+                #time.sleep(0.1)
+    
+    def _update_live_display(self, pil_image, count):
+        """Update the live feed display."""
+        if self.live_feed_active:
+            self.image_display.show_image(pil_image)
+            color = COLOR_SUCCESS if count > 0 else COLOR_INFO
+            self.count_label.config(
+                text=f"Live Feed - People Count: {count}",
+                fg=color
+            )
+    
     def _convert_to_pil(self, cv_image):
         """Convert OpenCV image to PIL."""
         if isinstance(cv_image, np.ndarray):
@@ -191,50 +286,52 @@ class CameraApp:
             return Image.fromarray(cv_image)
         return cv_image
     
-    def _update_count_display(self, count):
-        """Update people count label."""
-        color = COLOR_SUCCESS if count > 0 else COLOR_ERROR
-        self.count_label.config(text=f"People Count: {count}", fg=color)
-    
-    def _enable_buttons_after_capture(self, has_faces):
-        """Enable relevant buttons after capture."""
-        self.main_panel.enable("save_image")
-        if has_faces:
-            self.main_panel.enable("save_faces")
-        else:
-            self.main_panel.disable("save_faces")
-    
     def _on_capture(self):
-        """Handle capture button click."""
+        """Handle capture button - freeze frame and run recognition."""
         try:
-            self.status_bar.update("Capturing image...", COLOR_INFO)
+            self.status_bar.update("Capturing stable frame...", COLOR_INFO)
             
-            # Capture and detect
-            result = self.service.capture_and_detect_faces()
-            self.current_result = result
+            # Capture multiple frames for stable detection
+            frames = self.service.counter.camera.capture_frames(CAPTURE_FRAME_COUNT)
             
-            # Create annotated image
+            # Find stable detection
+            stable_frame, count, boxes = self.service.counter.detector.find_stable_detection(frames)
+            
+            # Extract faces
+            faces = self.service.counter.extract_face_images(stable_frame, boxes)
+            
+            # Store result
+            self.current_result = {
+                'image': stable_frame,
+                'count': count,
+                'boxes': boxes,
+                'faces': faces
+            }
+            
+            # Run face recognition and create annotated image
             annotated = self.service.create_annotated_image(
-                result['image'],
-                result['boxes'],
+                stable_frame,
+                boxes,
                 show_labels=True
             )
-            
-            # Display
+            # Open external window with recognized faces
             pil_image = self._convert_to_pil(annotated)
-            self.image_display.show_image(pil_image)
+            self.capture_window = CaptureWindow(self.root, pil_image, f"Captured - {count} People Detected")
             
-            # Update UI
-            self._update_count_display(result['count'])
-            self._enable_buttons_after_capture(result['count'] > 0)
+            # Enable buttons
+            self.main_panel.enable("save_image")
+            if count > 0:
+                self.main_panel.enable("save_faces")
+            else:
+                self.main_panel.disable("save_faces")
             
             self.status_bar.update(
-                f"Detected {result['count']} people",
+                f"Captured {count} people - Window opened",
                 COLOR_SUCCESS
             )
             
             # Check for unknown faces
-            self._check_unknown_faces(result['faces'])
+            self._check_unknown_faces(faces)
             
         except Exception as e:
             self._handle_error("Capture failed", e)
@@ -279,19 +376,15 @@ class CameraApp:
     
     def _on_download_and_process(self):
         """Handle download and process button."""
-        # Create processing dialog
         dialog = ProcessingDialog(self.root, "Download & Process Images")
         
-        # Run in thread to not freeze UI
         def process():
             try:
-                # Redirect print to dialog
                 import sys
                 
                 old_stdout = sys.stdout
                 sys.stdout = StringBuffer(dialog)
                 
-                # Download images
                 dialog.append("=" * 60)
                 dialog.append("STEP 1: DOWNLOADING IMAGES")
                 dialog.append("=" * 60)
@@ -305,7 +398,6 @@ class CameraApp:
                     sys.stdout = old_stdout
                     return
                 
-                # Extract faces
                 dialog.append("\n" + "=" * 60)
                 dialog.append("STEP 2: EXTRACTING FACES")
                 dialog.append("=" * 60)
@@ -313,10 +405,8 @@ class CameraApp:
                 pipeline = FaceExtractionPipeline()
                 stats = pipeline.run_pipeline()
                 
-                # Restore stdout
                 sys.stdout = old_stdout
                 
-                # Enable train button if faces were extracted
                 if stats['faces_extracted'] > 0:
                     self.root.after(0, lambda: self.model_panel.enable("train"))
                     self.root.after(0, lambda: self.status_bar.update(
@@ -331,14 +421,13 @@ class CameraApp:
                 dialog.append(f"\n✗ Error: {str(e)}")
                 dialog.enable_close()
         
-        # Start processing thread
         thread = threading.Thread(target=process, daemon=True)
         thread.start()
     
     def _on_save_image(self):
         """Handle save image button."""
         if not self.current_result:
-            messagebox.showwarning("Warning", "No image to save")
+            messagebox.showwarning("Warning", "No captured image to save")
             return
         
         try:
@@ -346,7 +435,6 @@ class CameraApp:
             if not filepath:
                 return
             
-            # Save annotated version
             annotated = self.service.create_annotated_image(
                 self.current_result['image'],
                 self.current_result['boxes'],
@@ -392,13 +480,11 @@ class CameraApp:
             
             self.status_bar.update("Saving faces...", COLOR_INFO)
             
-            # Get predictions for labels
             predictions = self.service.recognize_faces(
                 self.current_result['image'],
                 self.current_result['boxes']
             )
             
-            # Save each face with label
             saved_count = self._save_individual_faces(
                 directory,
                 self.current_result['faces'],
@@ -420,11 +506,9 @@ class CameraApp:
         processor = FaceImageProcessor()
         
         for i, (face, (name, conf)) in enumerate(zip(faces, predictions)):
-            # Add label to face
             label = name if name != "Unknown" else "Unknown"
             labeled = processor.add_label_to_face_image(face, label)
             
-            # Convert and save
             face_rgb = cv2.cvtColor(labeled, cv2.COLOR_BGR2RGB)
             pil_img = Image.fromarray(face_rgb)
             filepath = os.path.join(directory, f"person_{i+1}_{label}.png")
@@ -455,49 +539,17 @@ class CameraApp:
         except Exception as e:
             self._handle_error("Training failed", e)
     
-    def _on_predict_faces(self):
-        """Handle predict faces button."""
-        if not self.current_result:
-            messagebox.showwarning(
-                "Warning",
-                "No image to predict. Capture first."
-            )
-            return
-        
-        try:
-            self.status_bar.update("Predicting faces...", COLOR_TEAL)
-            self.root.update()
-            
-            # Check if model exists
-            if not self.service.has_trained_model():
-                self.service.reload_model()
-                if not self.service.has_trained_model():
-                    messagebox.showinfo(
-                        "No Model",
-                        "No trained model found.\n"
-                        "All faces will be marked as 'Unknown'.\n\n"
-                        "Please name faces and train the model."
-                    )
-            
-            # Re-annotate image with predictions
-            annotated = self.service.create_annotated_image(
-                self.current_result['image'],
-                self.current_result['boxes'],
-                show_labels=True
-            )
-            
-            pil_image = self._convert_to_pil(annotated)
-            self.image_display.show_image(pil_image)
-            
-            self.status_bar.update("Prediction complete", COLOR_SUCCESS)
-            
-        except Exception as e:
-            self._handle_error("Prediction failed", e)
     
     def _handle_error(self, title, error):
         """Handle errors consistently."""
         messagebox.showerror("Error", f"{title}: {str(error)}")
         self.status_bar.update(title, COLOR_ERROR)
+    
+    def _on_close(self):
+        """Handle window close event."""
+        self._stop_live_feed()
+        self.service.cleanup()
+        self.root.destroy()
     
     def run(self):
         """Start the application."""
@@ -505,6 +557,7 @@ class CameraApp:
     
     def cleanup(self):
         """Cleanup resources."""
+        self._stop_live_feed()
         self.service.cleanup()
 
 

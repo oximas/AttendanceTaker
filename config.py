@@ -1,7 +1,7 @@
 """
 config.py
 Central configuration file for Face Recognition System.
-Contains all system parameters, paths, colors, and external service URLs.
+Contains all system parameters, paths, colors, camera settings, and external service URLs.
 """
 
 import os
@@ -15,14 +15,18 @@ DOWNLOADS_DIR = "Downloaded_Faces"
 # Replace this URL with your actual Google Drive folder URL
 GOOGLE_DRIVE_FOLDER_URL = "https://drive.google.com/drive/folders/1pZBcKW5CpQORjYXAnPZrHHeV0MtWNTHx"
 
+# Camera Configuration
+CAMERA_URL = 0  # 0 for default webcam, or use IP camera URL like "rtsp://192.168.1.100:554/stream"
+DEFAULT_CAMERA_INDEX = 0  # Fallback for compatibility
+
 # Face Recognition Parameters
 FACE_IMAGE_SIZE = (160, 160)  # Required input size for FaceNet
 CONFIDENCE_THRESHOLD = 0.5
 MIN_FACE_SIZE = 20  # Minimum face size in pixels
 
-# Camera Parameters
-DEFAULT_CAMERA_INDEX = 0
-CAPTURE_FRAME_COUNT = 1  # Number of frames to capture for stability
+# Capture Parameters
+CAPTURE_FRAME_COUNT = 3  # Number of frames to capture for stable detection
+LIVE_DETECTION_FRAME_SKIP = 100 #number of frames to skip to not lag the live feed
 
 # Face Detection Parameters (MTCNN)
 MTCNN_MIN_FACE_SIZE = 20
@@ -72,6 +76,10 @@ DIALOG_WIDTH = 500
 DIALOG_HEIGHT = 600
 BUTTON_PADX = 20
 BUTTON_PADY = 10
+
+# External Capture Window
+CAPTURE_WINDOW_WIDTH = 800
+CAPTURE_WINDOW_HEIGHT = 600
 
 # Fonts
 FONT_TITLE = ("Helvetica", 20, "bold")
