@@ -244,23 +244,30 @@ class StatusBar:
     """Status bar component for displaying messages."""
     
     def __init__(self, parent):
-        from config import FONT_STATUS, COLOR_TEXT_SECONDARY
+        from config import FONT_STATUS, COLOR_TEXT_PRIMARY, COLOR_PRIMARY_BG
+        
+        # Create frame for better visibility
+        self.frame = tk.Frame(parent, bg=COLOR_PRIMARY_BG, height=10)
+        self.frame.pack(side=tk.BOTTOM, fill=tk.X, pady=0)
         
         self.label = tk.Label(
-            parent,
+            self.frame,
             text="Ready",
             font=FONT_STATUS,
             bg=COLOR_PRIMARY_BG,
-            fg=COLOR_TEXT_SECONDARY,
-            pady=10
+            fg=COLOR_TEXT_PRIMARY,  
+            pady=0,
+            anchor='n',
+            padx=20
         )
-        self.label.pack()
+        self.label.pack(fill=tk.BOTH, expand=True)
     
     def update(self, message, color=None):
         """Update status message."""
-        from config import COLOR_TEXT_SECONDARY
-        self.label.config(text=message, fg=color or COLOR_TEXT_SECONDARY)
-        self.label.update()
+        from config import COLOR_TEXT_PRIMARY
+        self.label.config(text=message, fg=color or COLOR_TEXT_PRIMARY)
+        self.label.update_idletasks()  # Force immediate update
+        self.frame.update_idletasks()
 
 
 class ImageDisplay:

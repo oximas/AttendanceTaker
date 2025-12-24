@@ -1,9 +1,6 @@
 """
 ui/GUI.py
-Main GUI application with live camera feed and face detection.
-Shows live video stream with real-time bounding boxes in main window.
-Captured images with recognition results open in external windows.
-Includes attendance tracking functionality.
+Main GUI application with live camera feed and face detection, and buttons for control.
 """
 
 import tkinter as tk
@@ -136,7 +133,7 @@ class CaptureWindow:
 
 
 class CameraApp:
-    """Main application with live camera feed and face detection."""
+    """Main application with live camera feed and AUTO-TRAINING."""
     
     def __init__(self, root):
         self.root = root
@@ -164,6 +161,7 @@ class CameraApp:
         self._create_title()
         self._create_button_panels()
         self._create_count_label()
+        self._create_model_status_label()
         self.image_display = ImageDisplay(self.root)
         self.status_bar = StatusBar(self.root)
     
@@ -190,10 +188,7 @@ class CameraApp:
             "save_image", "Save Current Capture",
             self._on_save_image, COLOR_SUCCESS, 1, enabled=False
         )
-        self.main_panel.add_button(
-            "save_faces", "Save Faces",
-            self._on_save_faces, COLOR_WARNING, 2, enabled=False
-        )
+        # NOTE: "Save Faces" button REMOVED as requested
         
         # Download and process panel
         self.download_panel = ButtonPanel(self.root)
@@ -202,15 +197,11 @@ class CameraApp:
             self._on_download_and_process, "#e67e22", 0
         )
         
-        # Model and attendance panel
-        self.model_panel = ButtonPanel(self.root)
-        self.model_panel.add_button(
-            "train", "Train Model",
-            self._on_train_model, COLOR_PURPLE, 0, enabled=False
-        )
-        self.model_panel.add_button(
+        # Attendance panel (Train Model button REMOVED)
+        self.attendance_panel = ButtonPanel(self.root)
+        self.attendance_panel.add_button(
             "take_attendance", "Take Attendance",
-            self._on_take_attendance, COLOR_TEAL, 1, enabled=False
+            self._on_take_attendance, COLOR_TEAL, 0, enabled=False
         )
     
     def _create_count_label(self):
@@ -225,15 +216,46 @@ class CameraApp:
             fg=COLOR_TEXT_SECONDARY,
             pady=10
         )
-        self.count_label.pack(pady=10)
+        self.count_label.pack(pady=5)
+    
+    def _create_model_status_label(self):
+        """Create model status indicator label."""
+        self.model_status_label = tk.Label(
+            self.root,
+            text="Model Status: Checking...",
+            font=("Helvetica", 11),
+            bg=COLOR_PRIMARY_BG,
+            fg=COLOR_INFO,
+            pady=5
+        )
+        self.model_status_label.pack(pady=5)
+    
+    def _update_model_status(self):
+        """Update model status label with current information."""
+        status = self.service.get_model_status()
+        
+        if not status['has_model']:
+            text = "Model Status: Not Trained"
+            color = COLOR_WARNING
+        elif status['needs_training']:
+            text = f"Model Status: Needs Update ({status['reason']})"
+            color = COLOR_WARNING
+        else:
+            text = f"Model Status: Ready ✓ ({status['trained_students']} students)"
+            color = COLOR_SUCCESS
+        
+        self.model_status_label.config(text=text, fg=color)
+        self.root.update_idletasks()
     
     def _check_initial_state(self):
-        """Check if faces exist and enable train button if so."""
-        people = self.service.recognizer.face_storage.list_people()
-        if people:
-            self.model_panel.enable("train")
+        """Check initial state and update UI."""
+        self._update_model_status()
+        
+        # Enable attendance if model is ready
+        status = self.service.get_model_status()
+        if status['has_model'] and not status['needs_training']:
             self.status_bar.update(
-                f"Ready - {len(people)} students in database",
+                f"Ready - {status['trained_students']} students in database",
                 COLOR_SUCCESS
             )
     
@@ -313,9 +335,72 @@ class CameraApp:
             return Image.fromarray(cv_image)
         return cv_image
     
+    def _auto_train_with_dialog(self, title="Training Model"):
+        """
+        Auto-train with progress dialog.
+        
+        Args:
+            title: Dialog title
+            
+        Returns:
+            dict: Training result or None if failed
+        """
+        dialog = ProcessingDialog(self.root, title)
+        result = {'success': False}
+        
+        def train():
+            try:
+                import sys
+                old_stdout = sys.stdout
+                sys.stdout = StringBuffer(dialog)
+                
+                dialog.append("="*60)
+                dialog.append("TRAINING MODEL")
+                dialog.append("="*60)
+                
+                # Check and train
+                train_result = self.service.check_and_train_if_needed()
+                
+                sys.stdout = old_stdout
+                
+                if train_result['trained']:
+                    dialog.append(f"\n✓ Training complete!")
+                    dialog.append(f"  Total faces: {train_result['num_faces']}")
+                    dialog.append(f"  Total students: {train_result['num_students']}")
+                    result['success'] = True
+                    result['data'] = train_result
+                else:
+                    dialog.append(f"\n✓ {train_result['reason']}")
+                    result['success'] = True
+                    result['data'] = train_result
+                
+                dialog.append("\n" + "="*60)
+                dialog.append("You may close this window now")
+                dialog.append("="*60)
+                dialog.enable_close()
+                
+                # Update UI
+                self.root.after(0, self._update_model_status)
+                
+            except Exception as e:
+                dialog.append(f"\n✗ Error: {str(e)}")
+                dialog.enable_close()
+                result['success'] = False
+        
+        thread = threading.Thread(target=train, daemon=True)
+        thread.start()
+        
+        return result
+    
     def _on_capture(self):
         """Handle capture button - freeze frame and run recognition."""
         try:
+            # Check if training needed before capture
+            status = self.service.get_model_status()
+            if status['needs_training']:
+                self.status_bar.update("Training model before capture...", COLOR_INFO)
+                self._auto_train_with_dialog("Auto-Training Before Capture")
+            
             self.status_bar.update("Capturing stable frame...", COLOR_INFO)
             
             # Capture multiple frames for stable detection
@@ -352,14 +437,10 @@ class CameraApp:
             
             # Enable buttons
             self.main_panel.enable("save_image")
-            if count > 0:
-                self.main_panel.enable("save_faces")
-                # Enable attendance button if model is trained
-                if self.service.has_trained_model():
-                    self.model_panel.enable("take_attendance")
+            if count > 0 and self.service.has_trained_model():
+                self.attendance_panel.enable("take_attendance")
             else:
-                self.main_panel.disable("save_faces")
-                self.model_panel.disable("take_attendance")
+                self.attendance_panel.disable("take_attendance")
             
             self.status_bar.update(
                 f"Captured {count} people - Window opened",
@@ -389,8 +470,11 @@ class CameraApp:
             self._name_unknown_faces(unknown)
     
     def _name_unknown_faces(self, unknown_list):
-        """Open dialog to name unknown faces."""
+        """Open dialog to name unknown faces and auto-train if new faces added."""
         unknown_faces = [face for _, face in unknown_list]
+        
+        # Get current student IDs before naming
+        ids_before = self.service.model_manager.get_current_student_ids()
         
         dialog = FaceNamingDialog(
             self.root,
@@ -403,15 +487,26 @@ class CameraApp:
         if student_ids:
             named_count = len([sid for sid in student_ids if sid != "Unknown"])
             if named_count > 0:
+                # Check if new faces were added
+                ids_after = self.service.model_manager.get_current_student_ids()
+                new_ids = ids_after - ids_before
+                
+                if new_ids:
+                    # Auto-train with new faces
+                    self.status_bar.update(
+                        f"Training model with {len(new_ids)} new student(s)...",
+                        COLOR_INFO
+                    )
+                    self._auto_train_with_dialog("Training with New Students")
+                
                 messagebox.showinfo(
                     "Success",
                     f"Saved {named_count} face(s)!",
                     parent=self.root
                 )
-                self.model_panel.enable("train")
     
     def _on_download_and_process(self):
-        """Handle download and process button."""
+        """Handle download and process button with AUTO-TRAINING."""
         dialog = ProcessingDialog(self.root, "Download & Process Images")
         
         def process():
@@ -421,44 +516,65 @@ class CameraApp:
                 old_stdout = sys.stdout
                 sys.stdout = StringBuffer(dialog)
                 
-                dialog.append("=" * 60)
+                dialog.append("="*60)
                 dialog.append("STEP 1: DOWNLOADING IMAGES")
-                dialog.append("=" * 60)
+                dialog.append("="*60)
                 
                 downloader = ImageDownloadManager(DOWNLOADS_DIR)
                 result = downloader.download_and_extract(GOOGLE_DRIVE_FOLDER_URL)
                 
                 if not result.get('success'):
                     dialog.append("\n✗ Download failed!")
+                    dialog.append("\n" + "="*60)
+                    dialog.append("You may close this window now")
+                    dialog.append("="*60)
                     dialog.enable_close()
                     sys.stdout = old_stdout
                     return
                 
                 dialog.append(f"\n✓ Extracted {result.get('extracted', 0)} student zip files")
                 if result.get('invalid_format', 0) > 0:
-                    dialog.append(f"⚠ {result['invalid_format']} files had invalid format (logged)")
+                    dialog.append(f"⚠  {result['invalid_format']} files had invalid format (logged)")
                 
-                dialog.append("\n" + "=" * 60)
+                dialog.append("\n" + "="*60)
                 dialog.append("STEP 2: EXTRACTING FACES")
-                dialog.append("=" * 60)
+                dialog.append("="*60)
                 
                 pipeline = FaceExtractionPipeline()
                 stats = pipeline.run_pipeline()
                 
-                sys.stdout = old_stdout
-                
                 if stats['faces_extracted'] > 0:
-                    self.root.after(0, lambda: self.model_panel.enable("train"))
+                    dialog.append("\n" + "="*60)
+                    dialog.append("STEP 3: TRAINING MODEL")
+                    dialog.append("="*60)
+                    
+                    # AUTO-TRAIN after extraction
+                    train_result = self.service.train_model_now()
+                    
+                    dialog.append(f"\n✓ Model trained successfully!")
+                    dialog.append(f"  Total faces: {train_result['num_faces']}")
+                    dialog.append(f"  Total students: {train_result['num_students']}")
+                    
+                    self.root.after(0, lambda: self.attendance_panel.enable("take_attendance"))
+                    self.root.after(0, lambda: self._update_model_status())
                     self.root.after(0, lambda: self.status_bar.update(
-                        f"Extracted {stats['faces_extracted']} faces from {stats['total_folders']} students", 
+                        f"Ready - Model trained on {train_result['num_students']} students", 
                         COLOR_SUCCESS
                     ))
                 
+                sys.stdout = old_stdout
+                
                 dialog.append("\n✓ Processing complete!")
+                dialog.append("\n" + "="*60)
+                dialog.append("You may close this window now")
+                dialog.append("="*60)
                 dialog.enable_close()
                 
             except Exception as e:
                 dialog.append(f"\n✗ Error: {str(e)}")
+                dialog.append("\n" + "="*60)
+                dialog.append("You may close this window now")
+                dialog.append("="*60)
                 dialog.enable_close()
         
         thread = threading.Thread(target=process, daemon=True)
@@ -504,80 +620,6 @@ class CameraApp:
             ],
             title="Save Image As"
         )
-    
-    def _on_save_faces(self):
-        """Handle save faces button."""
-        if not self.current_result or not self.current_result['faces']:
-            messagebox.showwarning("Warning", "No faces to save")
-            return
-        
-        try:
-            directory = filedialog.askdirectory(
-                title="Select Directory to Save Faces"
-            )
-            if not directory:
-                return
-            
-            self.status_bar.update("Saving faces...", COLOR_INFO)
-            
-            predictions = self.service.recognize_faces(
-                self.current_result['image'],
-                self.current_result['boxes']
-            )
-            
-            saved_count = self._save_individual_faces(
-                directory,
-                self.current_result['faces'],
-                predictions
-            )
-            
-            messagebox.showinfo(
-                "Success",
-                f"Saved {saved_count} faces to:\n{directory}"
-            )
-            self.status_bar.update(f"Saved {saved_count} faces", COLOR_SUCCESS)
-            
-        except Exception as e:
-            self._handle_error("Save faces failed", e)
-    
-    def _save_individual_faces(self, directory, faces, predictions):
-        """Save individual face images to directory."""
-        from core.FaceImageProcessor import FaceImageProcessor
-        processor = FaceImageProcessor()
-        
-        for i, (face, (student_id, student_name, conf)) in enumerate(zip(faces, predictions)):
-            label = f"{student_name} ({student_id})" if student_id != "Unknown" else "Unknown"
-            labeled = processor.add_label_to_face_image(face, label)
-            
-            face_rgb = cv2.cvtColor(labeled, cv2.COLOR_BGR2RGB)
-            pil_img = Image.fromarray(face_rgb)
-            filepath = os.path.join(directory, f"person_{i+1}_{student_id}.png")
-            pil_img.save(filepath)
-        
-        return len(faces)
-    
-    def _on_train_model(self):
-        """Handle train model button."""
-        try:
-            self.status_bar.update("Training model...", COLOR_PURPLE)
-            self.root.update()
-            
-            result = self.service.train_model()
-            
-            messagebox.showinfo(
-                "Training Complete",
-                f"Model trained successfully!\n\n"
-                f"Total faces: {result['num_faces']}\n"
-                f"Total students: {result['num_students']}"
-            )
-            
-            self.status_bar.update(
-                f"Trained on {result['num_faces']} faces from {result['num_students']} students",
-                COLOR_SUCCESS
-            )
-            
-        except Exception as e:
-            self._handle_error("Training failed", e)
     
     def _on_take_attendance(self):
         """Handle take attendance button."""

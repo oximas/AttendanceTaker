@@ -1,13 +1,14 @@
 """
 services/FaceRecognitionService.py
 Provides a simplified interface for face recognition operations.
-Hides complexity and coordinates between detection, recognition, storage, and attendance.
+NOW WITH AUTO-TRAINING: Automatically trains when needed based on ModelManager.
 """
 
 from services.PeopleCounter import PeopleCounter
 from core.FaceRecognizer import FaceRecognizer
 from core.FaceImageProcessor import FaceImageProcessor
 from services.StudentDatabase import StudentDatabase
+from services.ModelManager import ModelManager
 from config import CONFIDENCE_THRESHOLD
 
 
@@ -15,6 +16,7 @@ class FaceRecognitionService:
     """
     High-level service for face recognition operations.
     Coordinates multiple components to provide simple API for UI.
+    Includes automatic training based on face changes.
     """
     
     def __init__(self, camera_index=0):
@@ -22,6 +24,7 @@ class FaceRecognitionService:
         self.recognizer = FaceRecognizer()
         self.processor = FaceImageProcessor()
         self.student_db = StudentDatabase()
+        self.model_manager = ModelManager()
         self._load_existing_model()
     
     def _load_existing_model(self):
@@ -30,6 +33,77 @@ class FaceRecognitionService:
             self.recognizer.load_model()
         except Exception:
             pass  # No model exists yet
+    
+    def check_and_train_if_needed(self):
+        """
+        Check if training is needed and train if necessary.
+        
+        Returns:
+            dict: {
+                'trained': bool,
+                'reason': str,
+                'num_faces': int,
+                'num_students': int
+            }
+        """
+        needs_training, reason, new_students, removed_students = self.model_manager.needs_retraining()
+        
+        if not needs_training:
+            return {
+                'trained': False,
+                'reason': reason,
+                'num_faces': 0,
+                'num_students': 0
+            }
+        
+        # Train the model
+        try:
+            num_faces, num_students = self.recognizer.train()
+            self.recognizer.save_model()
+            self.model_manager.update_after_training()
+            
+            return {
+                'trained': True,
+                'reason': reason,
+                'num_faces': num_faces,
+                'num_students': num_students
+            }
+        except Exception as e:
+            raise RuntimeError(f"Training failed: {str(e)}")
+    
+    def train_model_now(self):
+        """
+        Force training regardless of whether it's needed.
+        
+        Returns:
+            dict: Training results
+        """
+        num_faces, num_students = self.recognizer.train()
+        self.recognizer.save_model()
+        self.model_manager.update_after_training()
+        
+        return {
+            'num_faces': num_faces,
+            'num_students': num_students
+        }
+    
+    def get_model_status(self):
+        """
+        Get current model training status.
+        
+        Returns:
+            dict: Model status information
+        """
+        stats = self.model_manager.get_training_stats()
+        has_model = self.recognizer.has_trained_model()
+        
+        return {
+            'has_model': has_model,
+            'current_students': stats['current_students'],
+            'trained_students': stats['trained_students'],
+            'needs_training': stats['needs_training'],
+            'reason': stats['reason']
+        }
     
     def capture_and_detect_faces(self):
         """
@@ -157,21 +231,6 @@ class FaceRecognitionService:
                 unknown.append((idx, face))
         
         return unknown
-    
-    def train_model(self):
-        """
-        Train face recognition model on saved faces.
-        
-        Returns:
-            dict: Training results with 'num_faces' and 'num_students'
-        """
-        num_faces, num_students = self.recognizer.train()
-        self.recognizer.save_model()
-        
-        return {
-            'num_faces': num_faces,
-            'num_students': num_students
-        }
     
     def has_trained_model(self):
         """Check if a trained model exists."""

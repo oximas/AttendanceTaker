@@ -3,6 +3,7 @@ services/ImageDownloader.py
 Downloads images from Google Drive and extracts zip files.
 Handles folder downloading, zip extraction, student ID/name extraction, and cleanup operations.
 Updates student database with extracted information.
+NOW WITH NAME SANITIZATION: Removes non-alphabetic characters and numbers from names.
 """
 
 import os
@@ -63,7 +64,30 @@ class GoogleDriveDownloader:
 
 
 class StudentInfoExtractor:
-    """Extracts student ID and name from zip filenames."""
+    """Extracts student ID and name from zip filenames with name sanitization."""
+    
+    @staticmethod
+    def sanitize_name(raw_name):
+        """
+        Sanitize student name by removing non-alphabetic characters and numbers.
+        
+        Args:
+            raw_name: Raw name from zip file (e.g., "Omar-Ashraf-Shokry123")
+            
+        Returns:
+            str: Sanitized name (e.g., "Omar Ashraf Shokry")
+        """
+        # Replace all non-alphabetic characters (except spaces) with space
+        # This handles: - _ . , ; : etc.
+        sanitized = re.sub(r'[^a-zA-Z\s]', ' ', raw_name)
+        
+        # Normalize multiple spaces to single space
+        sanitized = re.sub(r'\s+', ' ', sanitized)
+        
+        # Strip leading/trailing spaces
+        sanitized = sanitized.strip()
+        
+        return sanitized
     
     @staticmethod
     def extract_id_and_name(zip_filename):
@@ -72,7 +96,7 @@ class StudentInfoExtractor:
         Expected format: Name_ID.zip
         
         Args:
-            zip_filename: Zip file name (e.g., "OmarAshrafShokry_22010951.zip")
+            zip_filename: Zip file name (e.g., "Omar-Ashraf-Shokry_22010951.zip")
             
         Returns:
             tuple: (student_id, student_name) or (None, None) if invalid format
@@ -84,14 +108,21 @@ class StudentInfoExtractor:
         parts = name_without_ext.rsplit('_', 1)
         
         if len(parts) != 2:
-            print("parts not equal to 2")
+            print(f"Invalid format: Expected Name_ID.zip, got {zip_filename}")
             return None, None
         
-        student_name, student_id = parts
+        raw_name, student_id = parts
         
         # Validate ID is numeric
         if not student_id.isdigit():
-            print("id is not digit")
+            print(f"Invalid ID: {student_id} is not numeric")
+            return None, None
+        
+        # Sanitize the name
+        student_name = StudentInfoExtractor.sanitize_name(raw_name)
+        
+        if not student_name:
+            print(f"Invalid name: Name became empty after sanitization")
             return None, None
         
         return student_id, student_name
@@ -142,7 +173,7 @@ class ZipExtractor:
         """
         zip_filename = zip_path.name
         
-        # Extract ID and name
+        # Extract ID and name (with sanitization)
         student_id, student_name = StudentInfoExtractor.extract_id_and_name(zip_filename)
         
         if not student_id:
@@ -150,7 +181,7 @@ class ZipExtractor:
             StudentInfoExtractor.log_invalid_format(zip_filename, WRONG_FORMAT_LOG_FILE)
             return None, None, None
         
-        # Add student to database
+        # Add student to database with sanitized name
         self.student_db.add_student(student_id, student_name)
         
         # Use ID as folder name
