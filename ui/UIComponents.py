@@ -1,6 +1,7 @@
 """
-Reusable UI Components.
-Separated dialog and widget creation from main application logic.
+ui/UIComponents.py
+Reusable UI Components for the face recognition system.
+Includes dialogs, status bars, image displays, and button panels.
 """
 
 import tkinter as tk
@@ -14,13 +15,14 @@ from config import (
 
 
 class FaceNamingDialog:
-    """Dialog for naming unknown faces one by one."""
+    """Dialog for naming unknown faces with both Name and ID."""
     
     def __init__(self, parent, face_images, on_save_callback=None):
         self.parent = parent
         self.face_images = face_images
         self.on_save_callback = on_save_callback
-        self.names = []
+        self.student_ids = []
+        self.student_names = []
         self.current_index = 0
         
         self._create_dialog()
@@ -31,7 +33,7 @@ class FaceNamingDialog:
         """Create dialog window."""
         self.dialog = tk.Toplevel(self.parent)
         self.dialog.title("Name Unknown Faces")
-        self.dialog.geometry(f"{DIALOG_WIDTH}x{DIALOG_HEIGHT}")
+        self.dialog.geometry(f"{DIALOG_WIDTH}x{DIALOG_HEIGHT+50}")
         self.dialog.configure(bg=COLOR_PRIMARY_BG)
         self.dialog.transient(self.parent)
         self.dialog.grab_set()
@@ -40,7 +42,7 @@ class FaceNamingDialog:
         """Create all dialog widgets."""
         self._create_title_label()
         self._create_image_display()
-        self._create_name_entry()
+        self._create_input_fields()
         self._create_buttons()
     
     def _create_title_label(self):
@@ -71,23 +73,49 @@ class FaceNamingDialog:
         )
         self.image_label.pack(expand=True, pady=10)
     
-    def _create_name_entry(self):
-        """Create name input field."""
-        entry_frame = tk.Frame(self.dialog, bg=COLOR_PRIMARY_BG)
-        entry_frame.pack(pady=10)
+    def _create_input_fields(self):
+        """Create input fields for Name and ID."""
+        input_frame = tk.Frame(self.dialog, bg=COLOR_PRIMARY_BG)
+        input_frame.pack(pady=10)
+        
+        # Student ID field
+        id_row = tk.Frame(input_frame, bg=COLOR_PRIMARY_BG)
+        id_row.pack(pady=5)
         
         tk.Label(
-            entry_frame,
-            text="Enter Name:",
+            id_row,
+            text="Student ID:",
             font=FONT_LABEL,
             bg=COLOR_PRIMARY_BG,
-            fg=COLOR_TEXT_PRIMARY
+            fg=COLOR_TEXT_PRIMARY,
+            width=12,
+            anchor='w'
         ).pack(side=tk.LEFT, padx=5)
         
-        self.name_entry = tk.Entry(entry_frame, font=FONT_LABEL, width=20)
+        self.id_entry = tk.Entry(id_row, font=FONT_LABEL, width=20)
+        self.id_entry.pack(side=tk.LEFT, padx=5)
+        
+        # Student Name field
+        name_row = tk.Frame(input_frame, bg=COLOR_PRIMARY_BG)
+        name_row.pack(pady=5)
+        
+        tk.Label(
+            name_row,
+            text="Student Name:",
+            font=FONT_LABEL,
+            bg=COLOR_PRIMARY_BG,
+            fg=COLOR_TEXT_PRIMARY,
+            width=12,
+            anchor='w'
+        ).pack(side=tk.LEFT, padx=5)
+        
+        self.name_entry = tk.Entry(name_row, font=FONT_LABEL, width=20)
         self.name_entry.pack(side=tk.LEFT, padx=5)
-        self.name_entry.bind('<Return>', lambda e: self._submit_name())
-        self.name_entry.focus()
+        
+        # Focus on ID entry first
+        self.id_entry.focus()
+        self.id_entry.bind('<Return>', lambda e: self.name_entry.focus())
+        self.name_entry.bind('<Return>', lambda e: self._submit_info())
     
     def _create_buttons(self):
         """Create action buttons."""
@@ -96,7 +124,7 @@ class FaceNamingDialog:
         button_frame = tk.Frame(self.dialog, bg=COLOR_PRIMARY_BG)
         button_frame.pack(pady=10)
         
-        self._create_button(button_frame, "Submit", self._submit_name, 
+        self._create_button(button_frame, "Submit", self._submit_info, 
                            COLOR_SUCCESS, 0)
         self._create_button(button_frame, "Skip", self._skip_face, 
                            COLOR_WARNING, 1)
@@ -140,31 +168,54 @@ class FaceNamingDialog:
         self.image_label.config(image=photo)
         self.image_label.image = photo
     
-    def _submit_name(self):
-        """Submit the current name."""
-        name = self.name_entry.get().strip()
+    def _submit_info(self):
+        """Submit the current student info."""
+        student_id = self.id_entry.get().strip()
+        student_name = self.name_entry.get().strip()
         
-        if not name:
-            messagebox.showwarning("Warning", "Please enter a name", 
-                                 parent=self.dialog)
+        # Validate inputs
+        if not student_id or not student_name:
+            messagebox.showwarning(
+                "Warning",
+                "Please enter both Student ID and Name",
+                parent=self.dialog
+            )
             return
         
-        # Save face with callback
+        # Validate ID is numeric
+        if not student_id.isdigit():
+            messagebox.showwarning(
+                "Warning",
+                "Student ID must be numeric",
+                parent=self.dialog
+            )
+            return
+        
+        # Save face with callback using student ID
         if self.on_save_callback:
             face_img = self.face_images[self.current_index]
-            self.on_save_callback(face_img, name)
+            self.on_save_callback(face_img, student_id)
         
-        self.names.append(name)
+        self.student_ids.append(student_id)
+        self.student_names.append(student_name)
+        
+        # Also add to database
+        from services.StudentDatabase import StudentDatabase
+        db = StudentDatabase()
+        db.add_student(student_id, student_name)
+        
         self._next_face()
     
     def _skip_face(self):
         """Skip current face."""
-        self.names.append("Unknown")
+        self.student_ids.append("Unknown")
+        self.student_names.append("Unknown")
         self._next_face()
     
     def _next_face(self):
         """Move to next face."""
         self.current_index += 1
+        self.id_entry.delete(0, tk.END)
         self.name_entry.delete(0, tk.END)
         
         if self.current_index < len(self.face_images):
@@ -174,13 +225,19 @@ class FaceNamingDialog:
     
     def _cancel(self):
         """Cancel naming process."""
-        self.names = []
+        self.student_ids = []
+        self.student_names = []
         self.dialog.destroy()
     
     def show(self):
-        """Show dialog and wait for completion."""
+        """
+        Show dialog and wait for completion.
+        
+        Returns:
+            tuple: (student_ids, student_names)
+        """
         self.dialog.wait_window()
-        return self.names
+        return self.student_ids, self.student_names
 
 
 class StatusBar:

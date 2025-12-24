@@ -10,6 +10,12 @@ import os
 FACES_DIR = "Faces"
 MODELS_DIR = "Models"
 DOWNLOADS_DIR = "Downloaded_Faces"
+ATTENDANCE_DATA_DIR = "Attendance_Data"
+
+# Attendance Files
+ATTENDANCE_EXCEL_FILE = os.path.join(ATTENDANCE_DATA_DIR, "students_attendance.xlsx")
+WRONG_FORMAT_LOG_FILE = os.path.join(ATTENDANCE_DATA_DIR, "wrong_student_name_format.txt")
+ATTENDANCE_MARK = "✓"
 
 # Google Drive Configuration
 # Replace this URL with your actual Google Drive folder URL
@@ -93,3 +99,4 @@ FONT_STATUS = ("Helvetica", 10)
 os.makedirs(FACES_DIR, exist_ok=True)
 os.makedirs(MODELS_DIR, exist_ok=True)
 os.makedirs(DOWNLOADS_DIR, exist_ok=True)
+os.makedirs(ATTENDANCE_DATA_DIR, exist_ok=True)

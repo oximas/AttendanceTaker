@@ -11,9 +11,11 @@ Attendance_Tracker/
 │
 ├── services/                          # Application services
 │   ├── __init__.py
+│   ├── FaceExtractionPipeline.py
 │   ├── FaceRecognitionService.py     # Facade for complex operations
-│   └── PeopleCounter_Refactored.py   # Now lightweight
-│   └── ImageDownloader.py             # Download images from drive (collected from students)
+│   ├── PeopleCounter.py               # Now lightweight
+│   ├── ImageDownloader.py             # Download images from drive (collected from students)
+│   └── StudentDatabase.py             # Download images from drive (collected from students)
 │
 ├── storage/                           # File I/O operations
 │   ├── __init__.py
@@ -26,6 +28,9 @@ Attendance_Tracker/
 │
 │
 │
-├── Faces/                             # Data: Face images 
-├── Models/                            # Data: Trained models 
-└── Downloaded_Faces/                  # Data: Download temp files
+├── Faces/                             # Data: Face images
+├── Models/                            # Data: Trained models
+├── Downloaded_Faces/                  # Data: Download temp files
+├── Attendance_Data/                   # Data: Download temp files
+│   ├── studnet_attendace.xlsx         # Sheet with student attendance track over days
+│   └──wrong_student_name_format.txt   # wrongly fomated zip files go here.

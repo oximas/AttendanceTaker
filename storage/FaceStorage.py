@@ -1,6 +1,7 @@
 """
-Face storage module.
+storage/FaceStorage.py
 Handles saving and loading face images from disk.
+Uses student ID as folder and file naming convention.
 """
 
 import os
@@ -9,55 +10,55 @@ from config import FACES_DIR
 
 
 class FaceStorage:
-    """Manages face image storage on disk."""
+    """Manages face image storage on disk using student IDs."""
     
     def __init__(self, base_dir=FACES_DIR):
         self.base_dir = base_dir
         os.makedirs(self.base_dir, exist_ok=True)
     
-    def save_face(self, face_image, person_name):
+    def save_face(self, face_image, student_id):
         """
-        Save a face image with the given person name.
+        Save a face image with the given student ID.
         
         Args:
             face_image: Face image to save
-            person_name: Name of the person
+            student_id: Student ID (used as folder and file prefix)
             
         Returns:
             str: Path to saved file
         """
-        person_dir = os.path.join(self.base_dir, person_name)
+        person_dir = os.path.join(self.base_dir, student_id)
         os.makedirs(person_dir, exist_ok=True)
         
         # Count existing images
         existing_files = [f for f in os.listdir(person_dir) if f.endswith('.png')]
         next_number = len(existing_files) + 1
         
-        # Save image
-        filename = f"{person_name}_{next_number}.png"
+        # Save image with ID as filename
+        filename = f"{student_id}_{next_number}.png"
         filepath = os.path.join(person_dir, filename)
         cv2.imwrite(filepath, face_image)
         
         return filepath
     
-    def get_person_directory(self, person_name):
+    def get_person_directory(self, student_id):
         """
-        Get directory path for a person.
+        Get directory path for a student.
         
         Args:
-            person_name: Name of the person
+            student_id: Student ID
             
         Returns:
             str: Directory path
         """
-        return os.path.join(self.base_dir, person_name)
+        return os.path.join(self.base_dir, student_id)
     
     def list_people(self):
         """
-        Get list of all people with saved faces.
+        Get list of all student IDs with saved faces.
         
         Returns:
-            list: List of person names (directory names)
+            list: List of student IDs (directory names)
         """
         if not os.path.exists(self.base_dir):
             return []
@@ -65,17 +66,17 @@ class FaceStorage:
         return [d for d in os.listdir(self.base_dir) 
                 if os.path.isdir(os.path.join(self.base_dir, d))]
     
-    def load_person_images(self, person_name):
+    def load_person_images(self, student_id):
         """
-        Load all face images for a person.
+        Load all face images for a student.
         
         Args:
-            person_name: Name of the person
+            student_id: Student ID
             
         Returns:
             list: List of (image, filepath) tuples
         """
-        person_dir = self.get_person_directory(person_name)
+        person_dir = self.get_person_directory(student_id)
         if not os.path.exists(person_dir):
             return []
         
@@ -91,21 +92,21 @@ class FaceStorage:
         
         return images
     
-    def count_faces(self, person_name=None):
+    def count_faces(self, student_id=None):
         """
         Count total face images.
         
         Args:
-            person_name: Specific person, or None for all
+            student_id: Specific student ID, or None for all
             
         Returns:
             int: Number of face images
         """
-        if person_name:
-            images = self.load_person_images(person_name)
+        if student_id:
+            images = self.load_person_images(student_id)
             return len(images)
         
         total = 0
-        for person in self.list_people():
-            total += len(self.load_person_images(person))
+        for person_id in self.list_people():
+            total += len(self.load_person_images(person_id))
         return total

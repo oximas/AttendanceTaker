@@ -1,7 +1,7 @@
 """
-FaceExtractionPipeline.py
+services/FaceExtractionPipeline.py
 Processes downloaded images from DOWNLOADS_DIR, detects faces, and extracts them to FACES_DIR.
-Handles single-face validation and organizes faces by person name extracted from folder structure.
+Handles single-face validation and organizes faces by student ID extracted from folder structure.
 """
 
 import os
@@ -16,7 +16,7 @@ from storage.FaceStorage import FaceStorage
 class FaceExtractionPipeline:
     """
     Extracts faces from downloaded images and organizes them for training.
-    Processes folder structure: DOWNLOADS_DIR/PersonName_ID/images -> FACES_DIR/PersonName_ID/faces
+    Processes folder structure: DOWNLOADS_DIR/StudentID/images -> FACES_DIR/StudentID/faces
     """
     
     def __init__(self, downloads_dir=DOWNLOADS_DIR, faces_dir=FACES_DIR):
@@ -36,23 +36,24 @@ class FaceExtractionPipeline:
             'errors': 0
         }
     
-    def scan_person_folders(self):
+    def scan_student_folders(self):
         """
-        Scan DOWNLOADS_DIR for person folders.
+        Scan DOWNLOADS_DIR for student ID folders.
         
         Returns:
-            list: List of (folder_path, person_name) tuples
+            list: List of (folder_path, student_id) tuples
         """
         if not os.path.exists(self.downloads_dir):
             return []
         
-        person_folders = []
+        student_folders = []
         for item in os.listdir(self.downloads_dir):
             folder_path = os.path.join(self.downloads_dir, item)
             if os.path.isdir(folder_path):
-                person_folders.append((folder_path, item))
+                # Item is the student ID
+                student_folders.append((folder_path, item))
         
-        return person_folders
+        return student_folders
     
     def get_image_files(self, folder_path):
         """
@@ -113,13 +114,13 @@ class FaceExtractionPipeline:
             print(f"Error processing {image_path}: {str(e)}")
             return None
     
-    def process_person_folder(self, folder_path, person_name):
+    def process_student_folder(self, folder_path, student_id):
         """
-        Process all images in a person's folder.
+        Process all images in a student's folder.
         
         Args:
-            folder_path: Path to person's folder
-            person_name: Name of the person (folder name)
+            folder_path: Path to student's folder
+            student_id: Student ID (folder name)
             
         Returns:
             int: Number of faces successfully extracted
@@ -127,7 +128,7 @@ class FaceExtractionPipeline:
         image_files = self.get_image_files(folder_path)
         extracted_count = 0
         
-        print(f"\nProcessing: {person_name}")
+        print(f"\nProcessing Student ID: {student_id}")
         print(f"  Found {len(image_files)} images")
         
         for image_path in image_files:
@@ -137,8 +138,8 @@ class FaceExtractionPipeline:
             face = self.extract_single_face(image_path)
             
             if face is not None:
-                # Save to FACES_DIR
-                self.storage.save_face(face, person_name)
+                # Save to FACES_DIR using student ID
+                self.storage.save_face(face, student_id)
                 extracted_count += 1
                 self.stats['faces_extracted'] += 1
         
@@ -166,19 +167,19 @@ class FaceExtractionPipeline:
             'errors': 0
         }
         
-        # Scan for person folders
-        person_folders = self.scan_person_folders()
+        # Scan for student folders
+        student_folders = self.scan_student_folders()
         
-        if not person_folders:
-            print(f"\nNo person folders found in: {self.downloads_dir}")
+        if not student_folders:
+            print(f"\nNo student folders found in: {self.downloads_dir}")
             return self.stats
         
-        self.stats['total_folders'] = len(person_folders)
-        print(f"\nFound {len(person_folders)} person folders")
+        self.stats['total_folders'] = len(student_folders)
+        print(f"\nFound {len(student_folders)} student folders")
         
-        # Process each person folder
-        for folder_path, person_name in person_folders:
-            self.process_person_folder(folder_path, person_name)
+        # Process each student folder
+        for folder_path, student_id in student_folders:
+            self.process_student_folder(folder_path, student_id)
         
         # Print summary
         self._print_summary()
@@ -190,7 +191,7 @@ class FaceExtractionPipeline:
         print("\n" + "="*60)
         print("EXTRACTION SUMMARY")
         print("="*60)
-        print(f"Total person folders processed: {self.stats['total_folders']}")
+        print(f"Total student folders processed: {self.stats['total_folders']}")
         print(f"Total images scanned: {self.stats['total_images']}")
         print(f"Faces extracted: {self.stats['faces_extracted']}")
         print(f"Skipped (no face): {self.stats['skipped_no_face']}")

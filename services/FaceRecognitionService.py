@@ -1,13 +1,15 @@
 """
-Face Recognition Service - Facade Layer
+services/FaceRecognitionService.py
 Provides a simplified interface for face recognition operations.
-Hides complexity and coordinates between detection, recognition, and storage.
+Hides complexity and coordinates between detection, recognition, storage, and attendance.
 """
 
 from services.PeopleCounter import PeopleCounter
 from core.FaceRecognizer import FaceRecognizer
 from core.FaceImageProcessor import FaceImageProcessor
+from services.StudentDatabase import StudentDatabase
 from config import CONFIDENCE_THRESHOLD
+
 
 class FaceRecognitionService:
     """
@@ -19,6 +21,7 @@ class FaceRecognitionService:
         self.counter = PeopleCounter(camera_index)
         self.recognizer = FaceRecognizer()
         self.processor = FaceImageProcessor()
+        self.student_db = StudentDatabase()
         self._load_existing_model()
     
     def _load_existing_model(self):
@@ -53,21 +56,31 @@ class FaceRecognitionService:
     def recognize_faces(self, image, boxes):
         """
         Recognize all faces in an image.
+        Returns student IDs and their names.
         
         Args:
             image: Source image
             boxes: Bounding boxes
             
         Returns:
-            list: List of (name, confidence) tuples
+            list: List of (student_id, student_name, confidence) tuples
         """
         if not self.recognizer.has_trained_model():
-            return [("Unknown", 0.0) for _ in boxes]
+            return [("Unknown", "Unknown", 0.0) for _ in boxes]
         
         results = []
         for box in boxes:
-            name, confidence = self.recognizer.predict_from_box(image, box)
-            results.append((name, confidence))
+            student_id, confidence = self.recognizer.predict_from_box(image, box)
+            
+            # Look up student name from database
+            if student_id != "Unknown":
+                student_name = self.student_db.get_student_name(student_id)
+                if not student_name:
+                    student_name = "Unknown"
+            else:
+                student_name = "Unknown"
+            
+            results.append((student_id, student_name, confidence))
         
         return results
     
@@ -89,13 +102,13 @@ class FaceRecognitionService:
         # Get predictions
         predictions = self.recognize_faces(image, boxes)
         
-        # Create labels with confidence
+        # Create labels with student name and confidence
         labels = []
-        for name, confidence in predictions:
-            if name == "Unknown":
+        for student_id, student_name, confidence in predictions:
+            if student_id == "Unknown":
                 labels.append("Unknown")
             else:
-                labels.append(f"{name} ({confidence:.2f})")
+                labels.append(f"{student_name} ({confidence:.2f})")
         
         # Draw boxes
         annotated = self.processor.draw_bounding_boxes(image, boxes)
@@ -105,21 +118,21 @@ class FaceRecognitionService:
         
         return annotated
     
-    def save_faces_with_names(self, faces, names):
+    def save_faces_with_ids(self, faces, student_ids):
         """
-        Save multiple faces with their names.
+        Save multiple faces with their student IDs.
         
         Args:
             faces: List of face images
-            names: List of names (same length as faces)
+            student_ids: List of student IDs (same length as faces)
             
         Returns:
             list: List of saved file paths
         """
         saved_paths = []
-        for face, name in zip(faces, names):
-            if name and name != "Unknown":
-                path = self.counter.save_face(face, name)
+        for face, student_id in zip(faces, student_ids):
+            if student_id and student_id != "Unknown":
+                path = self.counter.save_face(face, student_id)
                 saved_paths.append(path)
         
         return saved_paths
@@ -139,8 +152,8 @@ class FaceRecognitionService:
         
         unknown = []
         for idx, face in enumerate(faces):
-            name, _ = self.recognizer.predict_face(face)
-            if name == "Unknown":
+            student_id, _ = self.recognizer.predict_face(face)
+            if student_id == "Unknown":
                 unknown.append((idx, face))
         
         return unknown
@@ -150,14 +163,14 @@ class FaceRecognitionService:
         Train face recognition model on saved faces.
         
         Returns:
-            dict: Training results with 'num_faces' and 'num_people'
+            dict: Training results with 'num_faces' and 'num_students'
         """
-        num_faces, num_people = self.recognizer.train()
+        num_faces, num_students = self.recognizer.train()
         self.recognizer.save_model()
         
         return {
             'num_faces': num_faces,
-            'num_people': num_people
+            'num_students': num_students
         }
     
     def has_trained_model(self):
@@ -167,6 +180,31 @@ class FaceRecognitionService:
     def reload_model(self):
         """Reload the trained model from disk."""
         return self.recognizer.load_model()
+    
+    def take_attendance(self, detected_student_ids, date_str):
+        """
+        Mark attendance for detected students on a specific date.
+        
+        Args:
+            detected_student_ids: List of student IDs detected in image
+            date_str: Date string (YYYY-MM-DD)
+            
+        Returns:
+            dict: {'marked': count, 'not_found': [ids], 'date': date_str}
+        """
+        # Remove duplicates while preserving order
+        unique_ids = []
+        seen = set()
+        for student_id in detected_student_ids:
+            if student_id != "Unknown" and student_id not in seen:
+                unique_ids.append(student_id)
+                seen.add(student_id)
+        
+        # Mark attendance in database
+        result = self.student_db.mark_multiple_attendance(unique_ids, date_str)
+        result['date'] = date_str
+        
+        return result
     
     def cleanup(self):
         """Release resources."""

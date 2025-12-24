@@ -1,8 +1,9 @@
 """
-GUI.py
+ui/GUI.py
 Main GUI application with live camera feed and face detection.
 Shows live video stream with real-time bounding boxes in main window.
 Captured images with recognition results open in external windows.
+Includes attendance tracking functionality.
 """
 
 import tkinter as tk
@@ -18,6 +19,7 @@ from services.FaceRecognitionService import FaceRecognitionService
 from services.FaceExtractionPipeline import FaceExtractionPipeline
 from services.ImageDownloader import ImageDownloadManager
 from ui.UIComponents import FaceNamingDialog, StatusBar, ImageDisplay, ButtonPanel
+from ui.DateSelectionDialog import DateSelectionDialog
 from config import (
     WINDOW_WIDTH, WINDOW_HEIGHT, COLOR_PRIMARY_BG,
     COLOR_SUCCESS, COLOR_WARNING, COLOR_ERROR, COLOR_INFO,
@@ -140,6 +142,7 @@ class CameraApp:
         self.root = root
         self.service = FaceRecognitionService(CAMERA_URL)
         self.current_result = None
+        self.current_detected_ids = []
         
         self.live_feed_active = True
         self.live_feed_thread = None
@@ -199,11 +202,15 @@ class CameraApp:
             self._on_download_and_process, "#e67e22", 0
         )
         
-        # Model actions panel
+        # Model and attendance panel
         self.model_panel = ButtonPanel(self.root)
         self.model_panel.add_button(
             "train", "Train Model",
             self._on_train_model, COLOR_PURPLE, 0, enabled=False
+        )
+        self.model_panel.add_button(
+            "take_attendance", "Take Attendance",
+            self._on_take_attendance, COLOR_TEAL, 1, enabled=False
         )
     
     def _create_count_label(self):
@@ -226,7 +233,7 @@ class CameraApp:
         if people:
             self.model_panel.enable("train")
             self.status_bar.update(
-                f"Ready - {len(people)} people in database",
+                f"Ready - {len(people)} students in database",
                 COLOR_SUCCESS
             )
     
@@ -248,6 +255,7 @@ class CameraApp:
         self.service.counter.camera.stop_stream()
     
     def _live_feed_loop(self):
+        """Main live feed loop running in background thread."""
         while self.live_feed_active:
             try:
                 frame = self.service.counter.camera.get_current_frame()
@@ -287,13 +295,16 @@ class CameraApp:
                 text=f"Live Feed - People Count: {count}",
                 fg=color
             )
+    
     def _run_detection(self, frame):
+        """Run face detection on a frame."""
         try:
             count, boxes = self.service.counter.detector.detect(frame)
             self.latest_boxes = boxes
             self.latest_count = count
         finally:
             self.detecting = False
+    
     def _convert_to_pil(self, cv_image):
         """Convert OpenCV image to PIL."""
         if isinstance(cv_image, np.ndarray):
@@ -330,6 +341,11 @@ class CameraApp:
                 boxes,
                 show_labels=True
             )
+            
+            # Get detected student IDs for attendance
+            predictions = self.service.recognize_faces(stable_frame, boxes)
+            self.current_detected_ids = [sid for sid, _, _ in predictions]
+            
             # Open external window with recognized faces
             pil_image = self._convert_to_pil(annotated)
             self.capture_window = CaptureWindow(self.root, pil_image, f"Captured - {count} People Detected")
@@ -338,8 +354,12 @@ class CameraApp:
             self.main_panel.enable("save_image")
             if count > 0:
                 self.main_panel.enable("save_faces")
+                # Enable attendance button if model is trained
+                if self.service.has_trained_model():
+                    self.model_panel.enable("take_attendance")
             else:
                 self.main_panel.disable("save_faces")
+                self.model_panel.disable("take_attendance")
             
             self.status_bar.update(
                 f"Captured {count} people - Window opened",
@@ -378,10 +398,10 @@ class CameraApp:
             on_save_callback=self.service.counter.save_face
         )
         
-        names = dialog.show()
+        student_ids, student_names = dialog.show()
         
-        if names:
-            named_count = len([n for n in names if n != "Unknown"])
+        if student_ids:
+            named_count = len([sid for sid in student_ids if sid != "Unknown"])
             if named_count > 0:
                 messagebox.showinfo(
                     "Success",
@@ -406,13 +426,17 @@ class CameraApp:
                 dialog.append("=" * 60)
                 
                 downloader = ImageDownloadManager(DOWNLOADS_DIR)
-                success = downloader.download_and_extract(GOOGLE_DRIVE_FOLDER_URL)
+                result = downloader.download_and_extract(GOOGLE_DRIVE_FOLDER_URL)
                 
-                if not success:
+                if not result.get('success'):
                     dialog.append("\n✗ Download failed!")
                     dialog.enable_close()
                     sys.stdout = old_stdout
                     return
+                
+                dialog.append(f"\n✓ Extracted {result.get('extracted', 0)} student zip files")
+                if result.get('invalid_format', 0) > 0:
+                    dialog.append(f"⚠ {result['invalid_format']} files had invalid format (logged)")
                 
                 dialog.append("\n" + "=" * 60)
                 dialog.append("STEP 2: EXTRACTING FACES")
@@ -426,7 +450,7 @@ class CameraApp:
                 if stats['faces_extracted'] > 0:
                     self.root.after(0, lambda: self.model_panel.enable("train"))
                     self.root.after(0, lambda: self.status_bar.update(
-                        f"Extracted {stats['faces_extracted']} faces", 
+                        f"Extracted {stats['faces_extracted']} faces from {stats['total_folders']} students", 
                         COLOR_SUCCESS
                     ))
                 
@@ -521,13 +545,13 @@ class CameraApp:
         from core.FaceImageProcessor import FaceImageProcessor
         processor = FaceImageProcessor()
         
-        for i, (face, (name, conf)) in enumerate(zip(faces, predictions)):
-            label = name if name != "Unknown" else "Unknown"
+        for i, (face, (student_id, student_name, conf)) in enumerate(zip(faces, predictions)):
+            label = f"{student_name} ({student_id})" if student_id != "Unknown" else "Unknown"
             labeled = processor.add_label_to_face_image(face, label)
             
             face_rgb = cv2.cvtColor(labeled, cv2.COLOR_BGR2RGB)
             pil_img = Image.fromarray(face_rgb)
-            filepath = os.path.join(directory, f"person_{i+1}_{label}.png")
+            filepath = os.path.join(directory, f"person_{i+1}_{student_id}.png")
             pil_img.save(filepath)
         
         return len(faces)
@@ -544,17 +568,67 @@ class CameraApp:
                 "Training Complete",
                 f"Model trained successfully!\n\n"
                 f"Total faces: {result['num_faces']}\n"
-                f"Total people: {result['num_people']}"
+                f"Total students: {result['num_students']}"
             )
             
             self.status_bar.update(
-                f"Trained on {result['num_faces']} faces from {result['num_people']} people",
+                f"Trained on {result['num_faces']} faces from {result['num_students']} students",
                 COLOR_SUCCESS
             )
             
         except Exception as e:
             self._handle_error("Training failed", e)
     
+    def _on_take_attendance(self):
+        """Handle take attendance button."""
+        if not self.current_result or not self.current_detected_ids:
+            messagebox.showwarning(
+                "Warning",
+                "No capture available. Please capture an image first.",
+                parent=self.root
+            )
+            return
+        
+        try:
+            # Show date selection dialog
+            date_dialog = DateSelectionDialog(self.root)
+            selected_date = date_dialog.show()
+            
+            if not selected_date:
+                return  # User cancelled
+            
+            self.status_bar.update("Taking attendance...", COLOR_TEAL)
+            self.root.update()
+            
+            # Take attendance
+            result = self.service.take_attendance(
+                self.current_detected_ids,
+                selected_date
+            )
+            
+            # Show results
+            message = f"Attendance taken for {selected_date}\n\n"
+            message += f"Marked present: {result['marked']} students\n"
+            
+            if result['not_found']:
+                message += f"\nWarning: {len(result['not_found'])} detected IDs not found in database:\n"
+                message += ", ".join(result['not_found'][:5])
+                if len(result['not_found']) > 5:
+                    message += f"\n...and {len(result['not_found']) - 5} more"
+            
+            messagebox.showinfo(
+                "Attendance Taken",
+                message,
+                parent=self.root
+            )
+            
+            self.status_bar.update(
+                f"Attendance: {result['marked']} present on {selected_date}",
+                COLOR_SUCCESS
+            )
+            
+        except Exception as e:
+            self._handle_error("Attendance failed", e)
     
     def _handle_error(self, title, error):
         """Handle errors consistently."""
