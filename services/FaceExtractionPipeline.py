@@ -2,6 +2,7 @@
 services/FaceExtractionPipeline.py
 Processes downloaded images from DOWNLOADS_DIR, detects faces, and extracts them to FACES_DIR.
 Handles single-face validation and organizes faces by student ID extracted from folder structure.
+Logs all extraction operations for tracking progress and troubleshooting.
 """
 
 import os
@@ -11,6 +12,7 @@ from config import DOWNLOADS_DIR, FACES_DIR
 from core.FaceDetector import FaceDetector
 from core.FaceImageProcessor import FaceImageProcessor
 from storage.FaceStorage import FaceStorage
+from logger import log_info, log_warning, log_error, log_section
 
 
 class FaceExtractionPipeline:
@@ -44,6 +46,7 @@ class FaceExtractionPipeline:
             list: List of (folder_path, student_id) tuples
         """
         if not os.path.exists(self.downloads_dir):
+            log_warning(f"Downloads directory not found: {self.downloads_dir}")
             return []
         
         student_folders = []
@@ -53,6 +56,7 @@ class FaceExtractionPipeline:
                 # Item is the student ID
                 student_folders.append((folder_path, item))
         
+        log_info(f"Found {len(student_folders)} student folders")
         return student_folders
     
     def get_image_files(self, folder_path):
@@ -88,6 +92,7 @@ class FaceExtractionPipeline:
             # Read image
             image = cv2.imread(image_path)
             if image is None:
+                self.stats['errors'] += 1
                 return None
             
             # Detect faces
@@ -111,7 +116,7 @@ class FaceExtractionPipeline:
             
         except Exception as e:
             self.stats['errors'] += 1
-            print(f"Error processing {image_path}: {str(e)}")
+            log_error(f"Error processing {image_path}", e)
             return None
     
     def process_student_folder(self, folder_path, student_id):
@@ -128,8 +133,7 @@ class FaceExtractionPipeline:
         image_files = self.get_image_files(folder_path)
         extracted_count = 0
         
-        print(f"\nProcessing Student ID: {student_id}")
-        print(f"  Found {len(image_files)} images")
+        log_info(f"Processing Student ID: {student_id} ({len(image_files)} images)")
         
         for image_path in image_files:
             self.stats['total_images'] += 1
@@ -143,7 +147,7 @@ class FaceExtractionPipeline:
                 extracted_count += 1
                 self.stats['faces_extracted'] += 1
         
-        print(f"  Extracted {extracted_count} faces")
+        log_info(f"  Extracted {extracted_count} faces for student {student_id}")
         return extracted_count
     
     def run_pipeline(self):
@@ -153,9 +157,7 @@ class FaceExtractionPipeline:
         Returns:
             dict: Statistics about the extraction process
         """
-        print("="*60)
-        print("FACE EXTRACTION PIPELINE")
-        print("="*60)
+        log_section("FACE EXTRACTION PIPELINE")
         
         # Reset statistics
         self.stats = {
@@ -171,11 +173,10 @@ class FaceExtractionPipeline:
         student_folders = self.scan_student_folders()
         
         if not student_folders:
-            print(f"\nNo student folders found in: {self.downloads_dir}")
+            log_warning(f"No student folders found in: {self.downloads_dir}")
             return self.stats
         
         self.stats['total_folders'] = len(student_folders)
-        print(f"\nFound {len(student_folders)} student folders")
         
         # Process each student folder
         for folder_path, student_id in student_folders:
@@ -188,16 +189,13 @@ class FaceExtractionPipeline:
     
     def _print_summary(self):
         """Print extraction summary."""
-        print("\n" + "="*60)
-        print("EXTRACTION SUMMARY")
-        print("="*60)
-        print(f"Total student folders processed: {self.stats['total_folders']}")
-        print(f"Total images scanned: {self.stats['total_images']}")
-        print(f"Faces extracted: {self.stats['faces_extracted']}")
-        print(f"Skipped (no face): {self.stats['skipped_no_face']}")
-        print(f"Skipped (multiple faces): {self.stats['skipped_multiple_faces']}")
-        print(f"Errors: {self.stats['errors']}")
-        print("="*60)
+        log_section("EXTRACTION SUMMARY")
+        log_info(f"Total student folders processed: {self.stats['total_folders']}")
+        log_info(f"Total images scanned: {self.stats['total_images']}")
+        log_info(f"Faces extracted: {self.stats['faces_extracted']}")
+        log_info(f"Skipped (no face): {self.stats['skipped_no_face']}")
+        log_info(f"Skipped (multiple faces): {self.stats['skipped_multiple_faces']}")
+        log_info(f"Errors: {self.stats['errors']}")
 
 
 if __name__ == "__main__":

@@ -1,7 +1,9 @@
 """
-Face Recognition module (refactored).
+core/FaceRecognizer.py
+Face Recognition module with FaceNet embeddings.
 Handles face recognition using FaceNet embeddings.
 Separated concerns: embedding generation, model management, prediction.
+Logs training and recognition operations.
 """
 
 import os
@@ -13,6 +15,7 @@ from tqdm import tqdm
 from core.FaceDetector import FaceDetector
 from core.FaceImageProcessor import FaceImageProcessor
 from storage.FaceStorage import FaceStorage
+from logger import log_info, log_error, log_warning, log_section
 from config import (
     MODELS_DIR, CONFIDENCE_THRESHOLD,
     DEFAULT_MODEL_NAME, EMBEDDINGS_SUFFIX, LABELS_SUFFIX
@@ -24,6 +27,7 @@ class EmbeddingGenerator:
     
     def __init__(self):
         self.embedder = FaceNet()
+        log_info("FaceNet embedder initialized")
     
     def generate(self, face_image):
         """
@@ -41,7 +45,8 @@ class EmbeddingGenerator:
         try:
             embedding = self.embedder.embeddings([face_image])[0]
             return embedding
-        except Exception:
+        except Exception as e:
+            log_error(f"Failed to generate embedding", e)
             return None
 
 
@@ -70,6 +75,8 @@ class ModelStorage:
         np.save(emb_path, embeddings)
         np.save(lbl_path, labels)
         
+        log_info(f"Model saved: {emb_path}, {lbl_path}")
+        
         return emb_path, lbl_path
     
     def load(self, model_name=DEFAULT_MODEL_NAME):
@@ -86,10 +93,13 @@ class ModelStorage:
         lbl_path = os.path.join(self.models_dir, f"{model_name}{LABELS_SUFFIX}")
         
         if not os.path.exists(emb_path) or not os.path.exists(lbl_path):
+            log_warning(f"Model files not found: {model_name}")
             return None, None
         
         embeddings = np.load(emb_path)
         labels = np.load(lbl_path)
+        
+        log_info(f"Model loaded: {len(embeddings)} embeddings, {len(set(labels))} unique students")
         
         return embeddings, labels
     
@@ -159,12 +169,14 @@ class FaceRecognizer:
         people = self.face_storage.list_people()
         
         if not people:
+            log_error("No people found in face storage for training")
             raise RuntimeError("No people found in face storage")
         
         embeddings_list = []
         labels_list = []
         
-        print(f"\n=== Training on {len(people)} people ===")
+        log_section("TRAINING MODEL")
+        log_info(f"Training started: {len(people)} students")
         
         for person_name in tqdm(people, desc="Processing people"):
             person_embeddings = self._process_person_images(person_name)
@@ -174,22 +186,23 @@ class FaceRecognizer:
                 labels_list.append(person_name)
         
         if not embeddings_list:
+            log_error("No valid faces found for training")
             raise RuntimeError("No valid faces found for training")
         
         self.embeddings = np.array(embeddings_list)
         self.labels = np.array(labels_list)
         
-        print(f"Training complete: {len(self.embeddings)} embeddings from {len(people)} people")
+        log_info(f"Training complete: {len(self.embeddings)} embeddings from {len(people)} students")
         
         return len(self.embeddings), len(people)
     
     def save_model(self, model_name=DEFAULT_MODEL_NAME):
         """Save trained model to disk."""
         if self.embeddings is None or self.labels is None:
+            log_error("Cannot save model: No trained model exists")
             raise RuntimeError("No trained model to save")
         
         self.model_storage.save(self.embeddings, self.labels, model_name)
-        print(f"Model saved to {self.model_storage.models_dir}/")
     
     def load_model(self, model_name=DEFAULT_MODEL_NAME):
         """
@@ -206,7 +219,6 @@ class FaceRecognizer:
         self.embeddings = embeddings
         self.labels = labels
         
-        print(f"Model loaded: {len(self.embeddings)} embeddings")
         return True
     
     def has_trained_model(self):
@@ -232,8 +244,11 @@ class FaceRecognizer:
         best_score = float(similarities[best_idx])
         
         if best_score >= threshold:
-            return str(self.labels[best_idx]), best_score
+            recognized_name = str(self.labels[best_idx])
+            log_info(f"Face recognized: {recognized_name} (confidence: {best_score:.2f})")
+            return recognized_name, best_score
         
+        log_warning(f"Unknown face detected (best match: {best_score:.2f}, threshold: {threshold})")
         return "Unknown", best_score
     
     def predict_face(self, face_image, threshold=CONFIDENCE_THRESHOLD):

@@ -8,6 +8,7 @@ Creates default settings file if none exists.
 import json
 import os
 from pathlib import Path
+from logger import log_info, log_warning, log_error
 
 
 class SettingsManager:
@@ -65,7 +66,7 @@ class SettingsManager:
         If file doesn't exist or is corrupted, create from defaults.
         """
         if not os.path.exists(self.settings_file):
-            print(f"Settings file not found. Creating default settings...")
+            log_info(f"Settings file not found. Creating default settings...")
             self.settings = self._get_default_settings()
             self._save_settings()
         else:
@@ -79,11 +80,11 @@ class SettingsManager:
                     if key not in self.settings:
                         self.settings[key] = value
                 
-                print(f"Settings loaded from {self.settings_file}")
+                log_info(f"Settings loaded from {self.settings_file}")
                 
             except (json.JSONDecodeError, Exception) as e:
-                print(f"Error loading settings: {e}")
-                print("Using default settings...")
+                log_error(f"Error loading settings", e)
+                log_warning("Using default settings...")
                 self.settings = self._get_default_settings()
                 self._save_settings()
     
@@ -94,10 +95,10 @@ class SettingsManager:
         try:
             with open(self.settings_file, 'w', encoding='utf-8') as f:
                 json.dump(self.settings, f, indent=4, ensure_ascii=False)
-            print(f"Settings saved to {self.settings_file}")
+            log_info(f"Settings saved to {self.settings_file}")
             return True
         except Exception as e:
-            print(f"Error saving settings: {e}")
+            log_error(f"Error saving settings", e)
             return False
     
     def get(self, key, default=None):
@@ -122,7 +123,10 @@ class SettingsManager:
             key: Setting key
             value: Setting value
         """
+        old_value = self.settings.get(key)
         self.settings[key] = value
+        if old_value != value:
+            log_info(f"Setting changed: {key}={value}")
     
     def save(self):
         """
@@ -138,6 +142,7 @@ class SettingsManager:
         Reset all settings to default values.
         Does NOT save automatically - call save() after.
         """
+        log_warning("Settings reset to defaults")
         self.settings = self._get_default_settings()
     
     def get_all_settings(self):
@@ -157,6 +162,10 @@ class SettingsManager:
         Args:
             settings_dict: Dictionary of settings to update
         """
+        for key, value in settings_dict.items():
+            old_value = self.settings.get(key)
+            if old_value != value:
+                log_info(f"Setting changed: {key}={value}")
         self.settings.update(settings_dict)
 
 

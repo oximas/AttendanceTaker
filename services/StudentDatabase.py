@@ -2,12 +2,14 @@
 services/StudentDatabase.py
 Manages student attendance database in Excel format.
 Handles student record creation, attendance marking, and database queries.
+Logs all database operations for tracking and troubleshooting.
 """
 
 import os
 import openpyxl
 from openpyxl import Workbook, load_workbook
 from datetime import datetime
+from logger import log_info, log_warning, log_error
 from config import ATTENDANCE_EXCEL_FILE, ATTENDANCE_MARK
 
 
@@ -34,6 +36,7 @@ class StudentDatabase:
                 ws[cell].font = openpyxl.styles.Font(bold=True)
             
             wb.save(self.excel_path)
+            log_info(f"Created new attendance database: {self.excel_path}")
     
     def add_student(self, student_id, student_name):
         """
@@ -59,6 +62,7 @@ class StudentDatabase:
         ws.append([student_id, student_name])
         wb.save(self.excel_path)
         wb.close()
+        log_info(f"Student added to database: ID={student_id}, Name={student_name}")
         return True
     
     def get_student_name(self, student_id):
@@ -137,11 +141,13 @@ class StudentDatabase:
         if date_col:
             for row in range(2, ws.max_row + 1):
                 ws.cell(row=row, column=date_col).value = None
+            log_info(f"Cleared existing attendance column for date: {date_str}")
         else:
             # Create new column
             date_col = ws.max_column + 1
             ws.cell(row=1, column=date_col).value = date_str
             ws.cell(row=1, column=date_col).font = openpyxl.styles.Font(bold=True)
+            log_info(f"Created new attendance column for date: {date_str}")
         
         wb.save(self.excel_path)
         wb.close()
@@ -170,6 +176,7 @@ class StudentDatabase:
         
         if not date_col:
             wb.close()
+            log_error(f"Date column not found: {date_str}")
             return False
         
         # Find student row
@@ -181,6 +188,7 @@ class StudentDatabase:
         
         if not student_row:
             wb.close()
+            log_warning(f"Student not found in database: {student_id}")
             return False
         
         # Mark attendance
@@ -211,6 +219,10 @@ class StudentDatabase:
                 marked_count += 1
             else:
                 not_found.append(student_id)
+        
+        log_info(f"Attendance marked for {date_str}: {marked_count} students present")
+        if not_found:
+            log_warning(f"Students not found in database: {not_found}")
         
         return {
             'marked': marked_count,

@@ -3,7 +3,7 @@ services/ImageDownloader.py
 Downloads images from Google Drive and extracts zip files.
 Handles folder downloading, zip extraction, student ID/name extraction, and cleanup operations.
 Updates student database with extracted information.
-NOW WITH NAME SANITIZATION: Removes non-alphabetic characters and numbers from names.
+Logs all download and extraction operations.
 """
 
 import os
@@ -13,6 +13,7 @@ import re
 from pathlib import Path
 from config import DOWNLOADS_DIR, WRONG_FORMAT_LOG_FILE
 from services.StudentDatabase import StudentDatabase
+from logger import log_info, log_warning, log_error, log_section
 
 
 class GoogleDriveDownloader:
@@ -48,7 +49,7 @@ class GoogleDriveDownloader:
         try:
             folder_id = GoogleDriveDownloader.extract_folder_id(folder_url)
             
-            print(f"Downloading from folder: {folder_id}")
+            log_info(f"Starting download from Google Drive folder: {folder_id}")
             
             gdown.download_folder(
                 id=folder_id,
@@ -56,10 +57,12 @@ class GoogleDriveDownloader:
                 quiet=False,
                 use_cookies=False
             )
+            
+            log_info("Download completed successfully")
             return True
             
         except Exception as e:
-            print(f"Download error: {str(e)}")
+            log_error("Google Drive download failed", e)
             return False
 
 
@@ -78,7 +81,6 @@ class StudentInfoExtractor:
             str: Sanitized name (e.g., "Omar Ashraf Shokry")
         """
         # Replace all non-alphabetic characters (except spaces) with space
-        # This handles: - _ . , ; : etc.
         sanitized = re.sub(r'[^a-zA-Z\s]', ' ', raw_name)
         
         # Normalize multiple spaces to single space
@@ -108,21 +110,21 @@ class StudentInfoExtractor:
         parts = name_without_ext.rsplit('_', 1)
         
         if len(parts) != 2:
-            print(f"Invalid format: Expected Name_ID.zip, got {zip_filename}")
+            log_warning(f"Invalid filename format: {zip_filename} (expected Name_ID.zip)")
             return None, None
         
         raw_name, student_id = parts
         
         # Validate ID is numeric
         if not student_id.isdigit():
-            print(f"Invalid ID: {student_id} is not numeric")
+            log_warning(f"Invalid student ID in {zip_filename}: {student_id} is not numeric")
             return None, None
         
         # Sanitize the name
         student_name = StudentInfoExtractor.sanitize_name(raw_name)
         
         if not student_name:
-            print(f"Invalid name: Name became empty after sanitization")
+            log_warning(f"Invalid name in {zip_filename}: name became empty after sanitization")
             return None, None
         
         return student_id, student_name
@@ -158,7 +160,9 @@ class ZipExtractor:
         Returns:
             list: List of Path objects for zip files
         """
-        return list(Path(directory).rglob("*.zip"))
+        zip_files = list(Path(directory).rglob("*.zip"))
+        log_info(f"Found {len(zip_files)} zip files in {directory}")
+        return zip_files
     
     def get_extraction_path(self, zip_path, base_output_dir):
         """
@@ -245,23 +249,24 @@ class ImageDownloadManager:
             dict: Statistics about the process
         """
         try:
+            log_section("DOWNLOADING FROM GOOGLE DRIVE")
+            
             # Download files
             success = self.downloader.download_folder(folder_url, self.output_dir)
             if not success:
                 return {'success': False}
             
             # Extract zips and update database
+            log_section("EXTRACTING ZIP FILES")
             stats = self._extract_all_zips()
             
-            print("\n" + "="*50)
-            print("Download and extraction complete!")
-            print("="*50)
+            log_info("Download and extraction complete!")
             
             stats['success'] = True
             return stats
             
         except Exception as e:
-            print(f"Error in download_and_extract: {str(e)}")
+            log_error("Download and extraction failed", e)
             return {'success': False, 'error': str(e)}
     
     def _extract_all_zips(self):
@@ -271,10 +276,6 @@ class ImageDownloadManager:
         Returns:
             dict: Extraction statistics
         """
-        print("\n" + "="*50)
-        print("Extracting zip files and updating database...")
-        print("="*50 + "\n")
-        
         zip_files = self.extractor.find_zip_files(self.output_dir)
         
         stats = {
@@ -285,7 +286,7 @@ class ImageDownloadManager:
         }
         
         if not zip_files:
-            print("No zip files found.")
+            log_warning("No zip files found to extract")
             return stats
         
         for zip_path in zip_files:
@@ -297,11 +298,7 @@ class ImageDownloadManager:
             elif result == 'error':
                 stats['errors'] += 1
         
-        # Print summary
-        print(f"\nTotal zip files: {stats['total_zips']}")
-        print(f"Successfully extracted: {stats['extracted']}")
-        print(f"Invalid format (logged): {stats['invalid_format']}")
-        print(f"Errors: {stats['errors']}")
+        log_info(f"Extraction summary: {stats['extracted']} extracted, {stats['invalid_format']} invalid, {stats['errors']} errors")
         
         return stats
     
@@ -312,7 +309,7 @@ class ImageDownloadManager:
         Returns:
             str: 'extracted', 'invalid', or 'error'
         """
-        print(f"Processing: {zip_path.name}")
+        log_info(f"Processing: {zip_path.name}")
         
         try:
             # Get extraction path and student info
@@ -322,35 +319,25 @@ class ImageDownloadManager:
             )
             
             if not extract_path:
-                print(f"   ✗ Invalid format - logged to error file")
+                log_warning(f"Invalid format: {zip_path.name} (logged to error file)")
                 return 'invalid'
             
-            print(f"   Student ID: {student_id}")
-            print(f"   Student Name: {student_name}")
-            print(f"   -> Extracting to: {extract_path}")
+            log_info(f"  Student ID: {student_id}, Name: {student_name}")
             
             # Extract
             num_files = self.extractor.extract_zip(zip_path, extract_path)
-            print(f"   ✓ Extracted {num_files} files")
+            log_info(f"  Extracted {num_files} files to {extract_path}")
             
             # Cleanup
             self.extractor.cleanup_after_extraction(zip_path, self.output_dir)
-            print(f"   ✓ Deleted zip file")
             
-            # Check if parent folder was removed
-            if not zip_path.parent.exists():
-                print(f"   ✓ Removed empty folder: {zip_path.parent.name}")
-            
-            print()
             return 'extracted'
             
         except zipfile.BadZipFile:
-            print(f"   ✗ Error: Not a valid zip file")
-            print()
+            log_error(f"Invalid zip file: {zip_path.name}")
             return 'error'
         except Exception as e:
-            print(f"   ✗ Error: {str(e)}")
-            print()
+            log_error(f"Error processing {zip_path.name}", e)
             return 'error'
 
 

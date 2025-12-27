@@ -2,12 +2,14 @@
 core/CameraManager.py
 Camera management module with live streaming support.
 Handles camera initialization, frame capture, continuous streaming, and cleanup.
+Logs all camera operations for troubleshooting.
 """
 
 import cv2
 import threading
 import time
 from config import CAMERA_URL, FLIP_HORIZONTAL
+from logger import log_info, log_error, log_warning
 
 
 class CameraManager:
@@ -26,7 +28,9 @@ class CameraManager:
         if self.cap is None or not self.cap.isOpened():
             self.cap = cv2.VideoCapture(self.camera_source)
             if not self.cap.isOpened():
+                log_error(f"Failed to open camera: {self.camera_source}")
                 raise RuntimeError(f"Failed to open camera {self.camera_source}")
+            log_info(f"Camera opened: source={self.camera_source}")
     
     def close(self):
         """Release camera resources."""
@@ -34,6 +38,7 @@ class CameraManager:
         if self.cap is not None:
             self.cap.release()
             self.cap = None
+            log_info("Camera closed")
     
     def is_open(self):
         """Check if camera is currently open."""
@@ -54,6 +59,7 @@ class CameraManager:
         
         ret, frame = self.cap.read()
         if not ret or frame is None:
+            log_error("Failed to capture frame from camera")
             raise RuntimeError("Failed to capture frame")
         
         # Only flip if flip is True AND FLIP_HORIZONTAL is enabled
@@ -84,8 +90,10 @@ class CameraManager:
                 continue
         
         if not frames:
+            log_error(f"No frames captured successfully out of {count} attempts")
             raise RuntimeError("No frames captured successfully")
         
+        log_info(f"Captured {len(frames)} frames")
         return frames
     
     def start_stream(self):
@@ -96,6 +104,7 @@ class CameraManager:
         self.is_streaming = True
         self.stream_thread = threading.Thread(target=self._stream_loop, daemon=True)
         self.stream_thread.start()
+        log_info("Live camera stream started")
     
     def stop_stream(self):
         """Stop continuous video streaming."""
@@ -103,6 +112,7 @@ class CameraManager:
         if self.stream_thread is not None:
             self.stream_thread.join(timeout=2)
             self.stream_thread = None
+            log_info("Live camera stream stopped")
     
     def _stream_loop(self):
         """Internal streaming loop running in background thread."""
