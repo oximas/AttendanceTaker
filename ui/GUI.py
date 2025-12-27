@@ -1,6 +1,7 @@
 """
 ui/GUI.py
-Main GUI application with live camera feed and face detection, and buttons for control.
+Main GUI application with live camera feed, face detection, and menu bar.
+Provides menu-based access to file operations, settings, and help.
 """
 
 import tkinter as tk
@@ -17,6 +18,7 @@ from services.FaceExtractionPipeline import FaceExtractionPipeline
 from services.ImageDownloader import ImageDownloadManager
 from ui.UIComponents import FaceNamingDialog, StatusBar, ImageDisplay, ButtonPanel
 from ui.DateSelectionDialog import DateSelectionDialog
+from ui.SettingsDialog import SettingsDialog
 from config import (
     WINDOW_WIDTH, WINDOW_HEIGHT, COLOR_PRIMARY_BG,
     COLOR_SUCCESS, COLOR_WARNING, COLOR_ERROR, COLOR_INFO,
@@ -145,6 +147,7 @@ class CameraApp:
         self.live_feed_thread = None
         
         self._setup_window()
+        self._create_menu_bar()
         self._create_ui()
         self._check_initial_state()
         self._start_live_feed()
@@ -155,6 +158,28 @@ class CameraApp:
         self.root.geometry(f"{WINDOW_WIDTH}x{WINDOW_HEIGHT}")
         self.root.configure(bg=COLOR_PRIMARY_BG)
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
+    
+    def _create_menu_bar(self):
+        """Create menu bar at top of window."""
+        menubar = tk.Menu(self.root)
+        self.root.config(menu=menubar)
+        
+        # File Menu
+        file_menu = tk.Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="File", menu=file_menu)
+        file_menu.add_command(label="Save Current Capture...", command=self._on_save_image)
+        file_menu.add_separator()
+        file_menu.add_command(label="Exit", command=self._on_close)
+        
+        # Settings Menu
+        settings_menu = tk.Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="Settings", menu=settings_menu)
+        settings_menu.add_command(label="Preferences...", command=self._open_settings)
+        
+        # Help Menu
+        help_menu = tk.Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="Help", menu=help_menu)
+        help_menu.add_command(label="About", command=self._show_about)
     
     def _create_ui(self):
         """Create all UI components."""
@@ -184,11 +209,7 @@ class CameraApp:
             "capture", "Capture and Detect",
             self._on_capture, COLOR_INFO, 0
         )
-        self.main_panel.add_button(
-            "save_image", "Save Current Capture",
-            self._on_save_image, COLOR_SUCCESS, 1, enabled=False
-        )
-        # NOTE: "Save Faces" button REMOVED as requested
+        # NOTE: "Save Image" button REMOVED - now in File menu
         
         # Download and process panel
         self.download_panel = ButtonPanel(self.root)
@@ -435,8 +456,7 @@ class CameraApp:
             pil_image = self._convert_to_pil(annotated)
             self.capture_window = CaptureWindow(self.root, pil_image, f"Captured - {count} People Detected")
             
-            # Enable buttons
-            self.main_panel.enable("save_image")
+            # Enable attendance button
             if count > 0 and self.service.has_trained_model():
                 self.attendance_panel.enable("take_attendance")
             else:
@@ -581,7 +601,7 @@ class CameraApp:
         thread.start()
     
     def _on_save_image(self):
-        """Handle save image button."""
+        """Handle save image from File menu."""
         if not self.current_result:
             messagebox.showwarning("Warning", "No captured image to save")
             return
@@ -671,6 +691,24 @@ class CameraApp:
             
         except Exception as e:
             self._handle_error("Attendance failed", e)
+    
+    def _open_settings(self):
+        """Open settings dialog."""
+        SettingsDialog(self.root).show()
+        # Refresh model status in case settings changed
+        self._update_model_status()
+    
+    def _show_about(self):
+        """Show about dialog."""
+        messagebox.showinfo(
+            "About AttendanceTracker",
+            "AttendanceTracker v0.9-beta\n\n"
+            "Face Recognition Attendance System\n\n"
+            "Developed for automated student attendance tracking\n"
+            "using real-time face recognition technology.\n\n"
+            "Contact: oximas2004@gmail.com",
+            parent=self.root
+        )
     
     def _handle_error(self, title, error):
         """Handle errors consistently."""

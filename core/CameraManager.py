@@ -1,5 +1,5 @@
 """
-CameraManager.py
+core/CameraManager.py
 Camera management module with live streaming support.
 Handles camera initialization, frame capture, continuous streaming, and cleanup.
 """
@@ -56,8 +56,9 @@ class CameraManager:
         if not ret or frame is None:
             raise RuntimeError("Failed to capture frame")
         
-        if flip:
-            frame = cv2.flip(frame, FLIP_HORIZONTAL)
+        # Only flip if flip is True AND FLIP_HORIZONTAL is enabled
+        if flip and FLIP_HORIZONTAL == 1:
+            frame = cv2.flip(frame, 1)  # 1 = horizontal flip only
         
         return frame
     
@@ -110,7 +111,10 @@ class CameraManager:
         while self.is_streaming:
             ret, frame = self.cap.read()
             if ret and frame is not None:
-                frame = cv2.flip(frame, FLIP_HORIZONTAL)
+                # Only flip if FLIP_HORIZONTAL is enabled (1)
+                # Don't flip if FLIP_HORIZONTAL is 0
+                if FLIP_HORIZONTAL == 1:
+                    frame = cv2.flip(frame, 1)  # 1 = horizontal flip only
                 
                 with self.frame_lock:
                     self.current_frame = frame.copy()
