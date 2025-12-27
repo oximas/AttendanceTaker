@@ -21,6 +21,9 @@ from ui.DateSelectionDialog import DateSelectionDialog
 from ui.SettingsDialog import SettingsDialog
 from ui.StudentManagementDialog import StudentManagementDialog
 from ui.AttendanceViewerDialog import AttendanceViewerDialog
+from ui.HelpDialog import HelpDialog
+from ui.WelcomeDialog import WelcomeDialog
+from logger import log_info, log_warning, log_error
 from config import (
     WINDOW_WIDTH, WINDOW_HEIGHT, COLOR_PRIMARY_BG,
     COLOR_SUCCESS, COLOR_WARNING, COLOR_ERROR, COLOR_INFO,
@@ -139,8 +142,9 @@ class CaptureWindow:
 class CameraApp:
     """Main application with live camera feed and AUTO-TRAINING."""
     
-    def __init__(self, root):
+    def __init__(self, root, first_run=False):
         self.root = root
+        self.first_run = first_run
         self.service = FaceRecognitionService(CAMERA_URL)
         self.current_result = None
         self.current_detected_ids = []
@@ -151,7 +155,13 @@ class CameraApp:
         self._setup_window()
         self._create_menu_bar()
         self._create_ui()
+        
+        # Show welcome dialog if first run
+        if self.first_run:
+            self.root.after(500, self._show_welcome)
+        
         self._check_initial_state()
+        self._perform_startup_validation()
         self._start_live_feed()
     
     def _setup_window(self):
@@ -189,6 +199,8 @@ class CameraApp:
         # Help Menu
         help_menu = tk.Menu(menubar, tearoff=0)
         menubar.add_cascade(label="Help", menu=help_menu)
+        help_menu.add_command(label="Quick Start Guide", command=self._show_help)
+        help_menu.add_separator()
         help_menu.add_command(label="About", command=self._show_about)
     
     def _create_ui(self):
@@ -289,6 +301,68 @@ class CameraApp:
                 f"Ready - {status['trained_students']} students in database",
                 COLOR_SUCCESS
             )
+    
+    def _perform_startup_validation(self):
+        """Perform startup validation checks."""
+        log_info("Performing startup validation...")
+        
+        issues = []
+        
+        # Check camera
+        try:
+            self.service.counter.camera.open()
+            ret, frame = self.service.counter.camera.cap.read()
+            if not ret or frame is None:
+                issues.append("⚠️ Camera opened but failed to capture frame")
+                log_warning("Camera test failed: No frame captured")
+            else:
+                log_info("Camera test passed")
+        except Exception as e:
+            issues.append(f"❌ Camera Error: {str(e)}")
+            log_error("Camera test failed", e)
+        
+        # Check model status
+        status = self.service.get_model_status()
+        if not status['has_model']:
+            issues.append("ℹ️ No trained model found - Download images and train")
+            log_warning("No trained model found")
+        elif status['needs_training']:
+            issues.append(f"ℹ️ Model needs update: {status['reason']}")
+            log_warning(f"Model needs training: {status['reason']}")
+        else:
+            log_info(f"Model ready: {status['trained_students']} students")
+        
+        # Check students in database
+        from services.StudentDatabase import StudentDatabase
+        db = StudentDatabase()
+        student_count = db.get_student_count()
+        if student_count == 0:
+            issues.append("ℹ️ No students in database - Add students to get started")
+            log_warning("No students in database")
+        else:
+            log_info(f"Database has {student_count} students")
+        
+        # Show issues if any (non-blocking)
+        if issues:
+            self.root.after(1000, lambda: self._show_startup_issues(issues))
+        else:
+            log_info("All startup validations passed")
+    
+    def _show_startup_issues(self, issues):
+        """Show startup validation issues to user."""
+        message = "Startup Validation:\n\n" + "\n".join(issues)
+        message += "\n\nThe app will continue running."
+        message += "\n\nCheck Help → Quick Start for setup instructions."
+        
+        messagebox.showinfo(
+            "Startup Check",
+            message,
+            parent=self.root
+        )
+    
+    def _show_welcome(self):
+        """Show welcome dialog for first-time users."""
+        WelcomeDialog(self.root).show()
     
     def _start_live_feed(self):
         """Start live camera feed with face detection."""
@@ -716,6 +790,10 @@ class CameraApp:
         """Open attendance viewer dialog."""
         AttendanceViewerDialog(self.root).show()
     
+    def _show_help(self):
+        """Open help dialog."""
+        HelpDialog(self.root).show()
+    
     def _show_about(self):
         """Show about dialog."""
         messagebox.showinfo(
@@ -763,9 +841,9 @@ class StringBuffer:
         pass
 
 
-def main():
+def main(first_run=False):
     root = tk.Tk()
-    app = CameraApp(root)
+    app = CameraApp(root, first_run=first_run)
     
     try:
         app.run()
