@@ -2,8 +2,14 @@
 """
 AttendanceTracker.spec
 PyInstaller specification file for AttendanceTracker.
-This file is auto-generated but can be manually edited.
 """
+
+import os
+from PyInstaller.utils.hooks import collect_data_files
+
+# Collect MTCNN and Keras-FaceNet data files
+mtcnn_datas = collect_data_files('mtcnn')
+keras_facenet_datas = collect_data_files('keras_facenet')
 
 block_cipher = None
 
@@ -13,17 +19,19 @@ a = Analysis(
     binaries=[],
     datas=[
         ('settings_template.json', '.'),
-    ],
+    ] + mtcnn_datas + keras_facenet_datas,  # ADD THIS LINE - includes model weights
     hiddenimports=[
         'tensorflow',
         'keras_facenet',
         'mtcnn',
+        'mtcnn.assets',  # ADD THIS - critical for MTCNN
         'cv2',
         'numpy',
         'PIL',
         'openpyxl',
         'sklearn',
         'sklearn.utils._weight_vector',
+        'sklearn.metrics.pairwise',  # ADD THIS - needed for cosine_similarity
         'gdown',
         'tqdm',
     ],

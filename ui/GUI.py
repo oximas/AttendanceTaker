@@ -2,6 +2,7 @@
 ui/GUI.py
 Main GUI application with live camera feed, face detection, and menu bar.
 Provides menu-based access to file operations, settings, and help.
+FIXED: Removed stdout redirection, using callback pattern for training progress.
 """
 
 import tkinter as tk
@@ -231,7 +232,6 @@ class CameraApp:
             "capture", "Capture and Detect",
             self._on_capture, COLOR_INFO, 0
         )
-        # NOTE: "Save Image" button REMOVED - now in File menu
         
         # Download and process panel
         self.download_panel = ButtonPanel(self.root)
@@ -240,7 +240,7 @@ class CameraApp:
             self._on_download_and_process, "#e67e22", 0
         )
         
-        # Attendance panel (Train Model button REMOVED)
+        # Attendance panel
         self.attendance_panel = ButtonPanel(self.root)
         self.attendance_panel.add_button(
             "take_attendance", "Take Attendance",
@@ -442,7 +442,7 @@ class CameraApp:
     
     def _auto_train_with_dialog(self, title="Training Model"):
         """
-        Auto-train with progress dialog.
+        Auto-train with progress dialog using callback pattern.
         
         Args:
             title: Dialog title
@@ -455,18 +455,14 @@ class CameraApp:
         
         def train():
             try:
-                import sys
-                old_stdout = sys.stdout
-                sys.stdout = StringBuffer(dialog)
-                
                 dialog.append("="*60)
                 dialog.append("TRAINING MODEL")
                 dialog.append("="*60)
                 
-                # Check and train
-                train_result = self.service.check_and_train_if_needed()
-                
-                sys.stdout = old_stdout
+                # Check and train with callback
+                train_result = self.service.check_and_train_if_needed(
+                    progress_callback=dialog.append
+                )
                 
                 if train_result['trained']:
                     dialog.append(f"\n✓ Training complete!")
@@ -610,16 +606,11 @@ class CameraApp:
                 )
     
     def _on_download_and_process(self):
-        """Handle download and process button with AUTO-TRAINING."""
+        """Handle download and process button with AUTO-TRAINING using callbacks."""
         dialog = ProcessingDialog(self.root, "Download & Process Images")
         
         def process():
             try:
-                import sys
-                
-                old_stdout = sys.stdout
-                sys.stdout = StringBuffer(dialog)
-                
                 dialog.append("="*60)
                 dialog.append("STEP 1: DOWNLOADING IMAGES")
                 dialog.append("="*60)
@@ -633,7 +624,6 @@ class CameraApp:
                     dialog.append("You may close this window now")
                     dialog.append("="*60)
                     dialog.enable_close()
-                    sys.stdout = old_stdout
                     return
                 
                 dialog.append(f"\n✓ Extracted {result.get('extracted', 0)} student zip files")
@@ -652,8 +642,10 @@ class CameraApp:
                     dialog.append("STEP 3: TRAINING MODEL")
                     dialog.append("="*60)
                     
-                    # AUTO-TRAIN after extraction
-                    train_result = self.service.train_model_now()
+                    # AUTO-TRAIN after extraction with callback
+                    train_result = self.service.train_model_now(
+                        progress_callback=dialog.append
+                    )
                     
                     dialog.append(f"\n✓ Model trained successfully!")
                     dialog.append(f"  Total faces: {train_result['num_faces']}")
@@ -665,8 +657,6 @@ class CameraApp:
                         f"Ready - Model trained on {train_result['num_students']} students", 
                         COLOR_SUCCESS
                     ))
-                
-                sys.stdout = old_stdout
                 
                 dialog.append("\n✓ Processing complete!")
                 dialog.append("\n" + "="*60)
@@ -825,20 +815,6 @@ class CameraApp:
         """Cleanup resources."""
         self._stop_live_feed()
         self.service.cleanup()
-
-
-class StringBuffer:
-    """Buffer to redirect print statements to dialog."""
-    
-    def __init__(self, dialog):
-        self.dialog = dialog
-    
-    def write(self, text):
-        if text.strip():
-            self.dialog.append(text.rstrip())
-    
-    def flush(self):
-        pass
 
 
 def main(first_run=False):

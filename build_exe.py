@@ -1,7 +1,7 @@
 """
 build_exe.py
-Automated build script for creating AttendanceTracker executable.
-Checks dependencies, runs PyInstaller, and creates distribution package.
+Automated build script for creating App executable.
+FIXED VERSION: Handles Python DLL issues properly + MTCNN assets fix.
 """
 
 import os
@@ -11,9 +11,9 @@ import shutil
 from pathlib import Path
 
 # Build configuration
-APP_NAME = "AttendanceTracker"
+APP_NAME = "Attendio"
 VERSION = "0.9-beta"
-ICON_FILE = "logo.ico"  # Optional - will work without it
+ICON_FILE = "logo.ico"  # Optional
 MAIN_SCRIPT = "main.py"
 DIST_FOLDER = "dist"
 BUILD_FOLDER = "build"
@@ -112,17 +112,21 @@ def clean_previous_builds():
     print_success("Clean complete")
 
 def build_executable():
-    """Build executable using PyInstaller."""
-    print_step("STEP 5: Building Executable")
+    """Build executable using PyInstaller with DLL fix."""
+    print_step("STEP 5: Building Executable (with DLL and MTCNN fixes)")
     
-    # PyInstaller command
+    # PyInstaller command with DLL handling
     cmd = [
         'pyinstaller',
-        '--onedir',  # Create folder with dependencies
+        '--onedir',  # Use onedir to avoid DLL issues
         '--windowed',  # No console window
         f'--name={APP_NAME}',
         '--clean',
         '--noconfirm',
+        
+        # CRITICAL: Add these to fix DLL issues
+        '--noupx',  # Disable UPX compression (can cause DLL issues)
+        '--debug=imports',  # Show import debugging info
     ]
     
     # Add icon if exists
@@ -132,36 +136,106 @@ def build_executable():
     else:
         print_warning(f"No icon file found: {ICON_FILE}")
     
-    # Hidden imports for TensorFlow/Keras
+    # Hidden imports - EXPANDED for better compatibility
     hidden_imports = [
+        # Core ML/AI
         'tensorflow',
+        'tensorflow.python',
+        'tensorflow.python.ops',
         'keras_facenet',
         'mtcnn',
-        'sklearn.utils._weight_vector',
+        'mtcnn.assets',  # CRITICAL FIX - Added this for MTCNN assets
+        
+        # CV/Image
+        'cv2',
+        'numpy',
+        'PIL',
         'PIL._tkinter_finder',
+        
+        # Data/Excel
+        'openpyxl',
+        'openpyxl.cell._writer',
+        
+        # ML utilities
+        'sklearn',
+        'sklearn.utils._weight_vector',
+        'sklearn.neighbors._typedefs',
+        'sklearn.utils._typedefs',
+        'sklearn.metrics.pairwise',  # ADDED - for cosine_similarity in face recognition
+        
+        # Download
+        'gdown',
+        'tqdm',
+        
+        # Standard lib that sometimes need explicit import
+        'queue',
+        'logging.handlers',
     ]
     
     for imp in hidden_imports:
         cmd.append(f'--hidden-import={imp}')
     
+    # Collect all data files - CRITICAL for model weights
+    cmd.extend([
+        '--collect-all=tensorflow',
+        '--collect-all=keras_facenet',
+        '--collect-all=mtcnn',  # This collects MTCNN model weight files
+        '--copy-metadata=tensorflow',
+        '--copy-metadata=keras-facenet',
+        '--copy-metadata=mtcnn',  # ADDED - copy MTCNN metadata
+    ])
+    
     # Add main script
     cmd.append(MAIN_SCRIPT)
     
-    print(f"Running: {' '.join(cmd)}\n")
+    print(f"Running: {' '.join(cmd[:10])}... (full command is long)\n")
     
     # Run PyInstaller
-    result = subprocess.run(cmd)
+    result = subprocess.run(cmd, capture_output=False)
     
     if result.returncode != 0:
         print_error("PyInstaller build failed!")
+        print_warning("Check the output above for errors")
         return False
     
     print_success("Executable built successfully")
     return True
 
+def verify_build():
+    """Verify the build was successful."""
+    print_step("STEP 6: Verifying Build")
+    
+    exe_path = os.path.join(DIST_FOLDER, APP_NAME, f"{APP_NAME}.exe")
+    
+    if not os.path.exists(exe_path):
+        print_error(f"Executable not found at: {exe_path}")
+        return False
+    
+    print_success(f"Executable found: {exe_path}")
+    
+    # Check for _internal folder
+    internal_path = os.path.join(DIST_FOLDER, APP_NAME, "_internal")
+    if os.path.exists(internal_path):
+        print_success(f"Dependencies folder found: _internal/")
+        
+        # Check if MTCNN assets are included
+        mtcnn_assets_path = os.path.join(internal_path, "mtcnn", "assets")
+        if os.path.exists(mtcnn_assets_path):
+            print_success(f"MTCNN assets folder found: mtcnn/assets/")
+        else:
+            print_warning("MTCNN assets folder not found (might cause issues)")
+    else:
+        print_warning("_internal folder not found (might cause issues)")
+    
+    # Check file size
+    size_mb = os.path.getsize(exe_path) / (1024 * 1024)
+    print_success(f"Executable size: {size_mb:.1f} MB")
+    
+    return True
+
 def create_distribution_package():
     """Create distribution package with all necessary files."""
-    print_step("STEP 6: Creating Distribution Package")
+    print_step("STEP 7: Creating Distribution Package")
     
     # Create output folder
     os.makedirs(OUTPUT_FOLDER, exist_ok=True)
@@ -200,7 +274,7 @@ def create_distribution_package():
 
 def create_zip_archive():
     """Create ZIP archive of distribution package."""
-    print_step("STEP 7: Creating ZIP Archive")
+    print_step("STEP 8: Creating ZIP Archive")
     
     archive_name = f"{OUTPUT_FOLDER}"
     
@@ -217,29 +291,40 @@ def print_summary():
     print_step("BUILD COMPLETE!")
     
     print(f"\n{Colors.GREEN}{'='*60}{Colors.END}")
-    print(f"{Colors.GREEN}✓ AttendanceTracker v{VERSION} built successfully!{Colors.END}")
+    print(f"{Colors.GREEN}✓ {APP_NAME} v{VERSION} built successfully!{Colors.END}")
     print(f"{Colors.GREEN}{'='*60}{Colors.END}\n")
     
-    print(f"Distribution package: {OUTPUT_FOLDER}/")
-    print(f"ZIP archive: {OUTPUT_FOLDER}.zip")
-    print(f"\nExecutable location: {OUTPUT_FOLDER}/{APP_NAME}/{APP_NAME}.exe")
+    exe_path = f"{OUTPUT_FOLDER}/{APP_NAME}/{APP_NAME}.exe"
     
-    print(f"\n{Colors.YELLOW}NEXT STEPS:{Colors.END}")
-    print(f"1. Test the executable: {OUTPUT_FOLDER}/{APP_NAME}/{APP_NAME}.exe")
-    print(f"2. Distribute the ZIP file or folder")
-    print(f"3. Users extract and run {APP_NAME}.exe")
+    print(f"📦 Distribution package: {OUTPUT_FOLDER}/")
+    print(f"📦 ZIP archive: {OUTPUT_FOLDER}.zip")
+    print(f"\n🚀 Executable location: {exe_path}")
+    
+    print(f"\n{Colors.YELLOW}⚠ IMPORTANT - READ THIS:{Colors.END}")
+    print(f"  • DO NOT run from build/ folder")
+    print(f"  • ONLY run from dist/{APP_NAME}/ or {OUTPUT_FOLDER}/")
+    print(f"  • Keep .exe and _internal/ folder together")
+    print(f"  • If DLL errors: Install Visual C++ Redistributable")
+    
+    print(f"\n{Colors.BLUE}NEXT STEPS:{Colors.END}")
+    print(f"1. Test: {exe_path}")
+    print(f"2. If 'python311.dll' error:")
+    print(f"   → Install: https://aka.ms/vs/17/release/vc_redist.x64.exe")
+    print(f"3. Distribute: {OUTPUT_FOLDER}.zip")
     
     print(f"\n{Colors.BLUE}Distribution includes:{Colors.END}")
-    print("  • AttendanceTracker.exe")
-    print("  • All dependencies (_internal folder)")
-    print("  • README.txt (user manual)")
-    print("  • INSTALLATION.txt (setup guide)")
-    print("  • Required folders (Faces, Models, etc.)")
+    print(f"  ✓ {APP_NAME}.exe")
+    print(f"  ✓ All dependencies (_internal folder)")
+    print(f"  ✓ MTCNN model weights (mtcnn/assets/)")
+    print(f"  ✓ README.txt (user manual)")
+    print(f"  ✓ INSTALLATION.txt (setup guide)")
+    print(f"  ✓ Required folders (Faces, Models, etc.)")
 
 def main():
     """Main build process."""
     print(f"\n{Colors.BLUE}{'='*60}{Colors.END}")
-    print(f"{Colors.BLUE}AttendanceTracker Build Script v{VERSION}{Colors.END}")
+    print(f"{Colors.BLUE}{APP_NAME} Build Script v{VERSION}{Colors.END}")
+    print(f"{Colors.BLUE}FIXED VERSION - Handles DLL and MTCNN issues{Colors.END}")
     print(f"{Colors.BLUE}{'='*60}{Colors.END}\n")
     
     # Run build steps
@@ -257,6 +342,9 @@ def main():
     if not build_executable():
         sys.exit(1)
     
+    if not verify_build():
+        print_warning("Build verification failed, but continuing...")
+    
     if not create_distribution_package():
         sys.exit(1)
     
@@ -272,4 +360,6 @@ if __name__ == "__main__":
         sys.exit(1)
     except Exception as e:
         print_error(f"\n\nBuild failed with error: {e}")
+        import traceback
+        traceback.print_exc()
         sys.exit(1)

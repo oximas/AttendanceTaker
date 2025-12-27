@@ -34,9 +34,12 @@ class FaceRecognitionService:
         except Exception:
             pass  # No model exists yet
     
-    def check_and_train_if_needed(self):
+    def check_and_train_if_needed(self, progress_callback=None):
         """
         Check if training is needed and train if necessary.
+        
+        Args:
+            progress_callback: Optional callback(message) for progress updates
         
         Returns:
             dict: {
@@ -58,7 +61,7 @@ class FaceRecognitionService:
         
         # Train the model
         try:
-            num_faces, num_students = self.recognizer.train()
+            num_faces, num_students = self.recognizer.train(progress_callback=progress_callback)
             self.recognizer.save_model()
             self.model_manager.update_after_training()
             
@@ -71,14 +74,17 @@ class FaceRecognitionService:
         except Exception as e:
             raise RuntimeError(f"Training failed: {str(e)}")
     
-    def train_model_now(self):
+    def train_model_now(self, progress_callback=None):
         """
         Force training regardless of whether it's needed.
+        
+        Args:
+            progress_callback: Optional callback(message) for progress updates
         
         Returns:
             dict: Training results
         """
-        num_faces, num_students = self.recognizer.train()
+        num_faces, num_students = self.recognizer.train(progress_callback=progress_callback)
         self.recognizer.save_model()
         self.model_manager.update_after_training()
         

@@ -126,12 +126,13 @@ class FaceRecognizer:
         self.embeddings = None
         self.labels = None
     
-    def _process_person_images(self, person_name):
+    def _process_person_images(self, person_name, progress_callback=None):
         """
         Load and process all images for a person.
         
         Args:
             person_name: Name of the person
+            progress_callback: Optional callback(message) for progress updates
             
         Returns:
             list: List of embeddings for this person
@@ -159,40 +160,68 @@ class FaceRecognizer:
         
         return embeddings
     
-    def train(self):
+    def train(self, progress_callback=None):
         """
         Train face recognition model from stored faces.
         
+        Args:
+            progress_callback: Optional callback(message) for progress updates
+            
         Returns:
             tuple: (num_faces, num_people)
         """
         people = self.face_storage.list_people()
         
         if not people:
-            log_error("No people found in face storage for training")
+            msg = "No people found in face storage for training"
+            log_error(msg)
+            if progress_callback:
+                progress_callback(f"✗ Error: {msg}")
             raise RuntimeError("No people found in face storage")
         
         embeddings_list = []
         labels_list = []
         
         log_section("TRAINING MODEL")
+        if progress_callback:
+            progress_callback("="*60)
+            progress_callback("TRAINING MODEL")
+            progress_callback("="*60)
+            progress_callback(f"Training started: {len(people)} students")
+        
         log_info(f"Training started: {len(people)} students")
         
-        for person_name in tqdm(people, desc="Processing people"):
-            person_embeddings = self._process_person_images(person_name)
+        # Process each person
+        for idx, person_name in enumerate(people, 1):
+            if progress_callback:
+                progress_callback(f"Processing student {idx}/{len(people)}: {person_name}")
+            
+            person_embeddings = self._process_person_images(person_name, progress_callback)
             
             for embedding in person_embeddings:
                 embeddings_list.append(embedding)
                 labels_list.append(person_name)
+            
+            if progress_callback:
+                progress_callback(f"  → Found {len(person_embeddings)} face(s)")
         
         if not embeddings_list:
-            log_error("No valid faces found for training")
+            msg = "No valid faces found for training"
+            log_error(msg)
+            if progress_callback:
+                progress_callback(f"✗ Error: {msg}")
             raise RuntimeError("No valid faces found for training")
         
         self.embeddings = np.array(embeddings_list)
         self.labels = np.array(labels_list)
         
         log_info(f"Training complete: {len(self.embeddings)} embeddings from {len(people)} students")
+        
+        if progress_callback:
+            progress_callback("")
+            progress_callback(f"✓ Training complete!")
+            progress_callback(f"  Total faces: {len(self.embeddings)}")
+            progress_callback(f"  Total students: {len(people)}")
         
         return len(self.embeddings), len(people)
     
@@ -295,7 +324,10 @@ if __name__ == "__main__":
     recognizer = FaceRecognizer()
     
     try:
-        num_faces, num_people = recognizer.train()
+        def progress(msg):
+            print(msg)
+        
+        num_faces, num_people = recognizer.train(progress_callback=progress)
         recognizer.save_model()
         print(f"\nTrained on {num_faces} faces from {num_people} people")
         

@@ -1,37 +1,49 @@
-Attendance_Tracker/
-├── main.py 			       #
-├── config.py                          # All constants in one place
+C:.
+│   .gitignore
+│   app.log
+│   AttendanceTracker.spec
+│   Attendio.spec
+│   build_exe.py
+│   config.py
+│   env.txt
+│   INSTALLATION.txt
+│   logger.py
+│   logo.ico
+│   main.py
+│   README.txt
+│   requirements.txt
+│   settings.json
+│   SettingsManager.py
+│   settings_template.json
+│   Structure.txt
 │
-├── core/                              # Core business logic
-│   ├── __init__.py
-│   ├── CameraManager.py              # Camera operations only
-│   ├── FaceDetector.py               # Face detection only
-│   ├── FaceImageProcessor.py         #  Image processing only
-│   └── FaceRecognizer.py             # Separated concerns
+├───core
+│   │   CameraManager.py
+│   │   FaceDetector.py
+│   │   FaceImageProcessor.py
+│   │   FaceRecognizer.py
+│   │   __init__.py
 │
-├── services/                          # Application services
-│   ├── __init__.py
-│   ├── FaceExtractionPipeline.py
-│   ├── FaceRecognitionService.py      # Facade for complex operations
-│   ├── PeopleCounter.py               # Now lightweight
-│   ├── ImageDownloader.py             # Download images from drive (collected from students)
-│   ├── StudentDatabase.py             # Manage Students in a Database 
-│   └── ModelManager.py 	       # Manage the Models and whether or not they are trained
+├───services
+│   │   FaceExtractionPipeline.py
+│   │   FaceRecognitionService.py
+│   │   ImageDownloader.py
+│   │   ModelManager.py
+│   │   PeopleCounter.py
+│   │   StudentDatabase.py
+│   │   __init__.py
 │
-├── storage/                           # File I/O operations
-│   ├── __init__.py
-│   └── FaceStorage.py                # Face image storage
+├───storage
+│   │   FaceStorage.py
+│   │   __init__.py
 │
-├── ui/                                # All UI components
-│   ├── __init__.py
-│   ├── UIComponents.py               # Reusable UI widgets
-│   └── GUI.py                        # Clean separation
-│
-│
-│
-├── Faces/                             # Data: Face images
-├── Models/                            # Data: Trained models
-├── Downloaded_Faces/                  # Data: Download temp files
-├── Attendance_Data/                   # Data: Download temp files
-│   ├── studnet_attendace.xlsx         # Sheet with student attendance track over days
-│   └──wrong_student_name_format.txt   # wrongly fomated zip files go here.
+├───ui
+│   │   AttendanceViewerDialog.py
+│   │   DateSelectionDialog.py
+│   │   GUI.py
+│   │   HelpDialog.py
+│   │   SettingsDialog.py
+│   │   StudentManagementDialog.py
+│   │   UIComponents.py
+│   │   WelcomeDialog.py
+│   │   __init__.py
