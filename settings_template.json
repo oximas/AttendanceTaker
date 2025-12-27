@@ -1,0 +1,42 @@
+{
+    "_comment": "AttendanceTracker Settings - Edit these values to customize the application",
+    "_version": "0.9-beta",
+    
+    "CAMERA_URL": 0,
+    "_camera_note": "Use 0 for default webcam, 1 for external camera, or full URL for IP camera (e.g., 'rtsp://192.168.1.100:554/stream')",
+    
+    "FLIP_HORIZONTAL": 1,
+    "_flip_note": "Set to 1 to flip camera horizontally (mirror mode), 0 for normal",
+    
+    "CAPTURE_FRAME_COUNT": 3,
+    "_capture_note": "Number of frames to capture for stable face detection (higher = more stable but slower)",
+    
+    "LIVE_DETECTION_FRAME_SKIP": 100,
+    "_skip_note": "Skip frames in live feed to reduce lag (higher = less CPU usage but less responsive)",
+    
+    "GOOGLE_DRIVE_FOLDER_URL": "https://drive.google.com/drive/folders/1pZBcKW5CpQORjYXAnPZrHHeV0MtWNTHx",
+    "_drive_note": "Google Drive folder URL containing student zip files. Folder must be publicly accessible.",
+    
+    "CONFIDENCE_THRESHOLD": 0.5,
+    "_confidence_note": "Face recognition confidence threshold (0.0-1.0). Higher = stricter matching. Recommended: 0.4-0.6",
+    
+    "MIN_FACE_SIZE": 20,
+    "_min_face_note": "Minimum face size in pixels to detect. Lower = detect smaller faces but slower.",
+    
+    "MTCNN_MIN_FACE_SIZE": 20,
+    "MTCNN_SCALE_FACTOR": 0.709,
+    "_mtcnn_note": "Advanced MTCNN detector settings. Do not change unless you know what you're doing.",
+    
+    "ATTENDANCE_MARK": "✓",
+    "_mark_note": "Symbol used to mark attendance in Excel file. Can be any text (e.g., 'P', 'X', '✓')",
+    
+    "FACES_DIR": "Faces",
+    "MODELS_DIR": "Models",
+    "DOWNLOADS_DIR": "Downloaded_Faces",
+    "ATTENDANCE_DATA_DIR": "Attendance_Data",
+    "_dirs_note": "Directory paths for storing data. Relative to application location.",
+    
+    "WINDOW_WIDTH": 900,
+    "WINDOW_HEIGHT": 700,
+    "_ui_note": "Main window dimensions in pixels"
+}
