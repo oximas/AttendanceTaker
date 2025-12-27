@@ -1,0 +1,267 @@
+═══════════════════════════════════════════════════════════════
+   ATTENDANCETRACKER - INSTALLATION GUIDE
+═══════════════════════════════════════════════════════════════
+
+
+QUICK START (3 STEPS)
+═══════════════════════════════════════════════════════════════
+
+1. EXTRACT FILES
+   • Extract all files from ZIP to a folder
+   • Keep all folders together (do not separate files)
+
+2. RUN APPLICATION
+   • Double-click: AttendanceTracker.exe
+   • Welcome screen will appear on first run
+
+3. FOLLOW SETUP WIZARD
+   • Configure camera (Settings → Preferences)
+   • Set Google Drive folder URL
+   • Add students to database
+   • Download training images
+   • Start taking attendance!
+
+
+DETAILED INSTALLATION
+═══════════════════════════════════════════════════════════════
+
+STEP 1: EXTRACT APPLICATION
+───────────────────────────────────────────────────────────────
+• Download: AttendanceTracker_v0.9-beta.zip
+• Extract to a permanent location, such as:
+  C:\Program Files\AttendanceTracker\
+  or
+  C:\Users\YourName\Documents\AttendanceTracker\
+
+• DO NOT extract to Desktop or Temp folders!
+• DO NOT run from inside the ZIP file!
+
+
+STEP 2: VERIFY FOLDER STRUCTURE
+───────────────────────────────────────────────────────────────
+After extraction, you should see:
+
+AttendanceTracker_v0.9-beta/
+├── AttendanceTracker/          (Application folder)
+│   ├── AttendanceTracker.exe   ← Run this file
+│   ├── _internal/              (Dependencies - don't touch)
+│   └── ...
+├── Faces/                      (Will store face images)
+├── Models/                     (Will store trained models)
+├── Downloaded_Faces/           (Temp download folder)
+├── Attendance_Data/            (Excel attendance files)
+├── README.txt                  (User manual)
+├── INSTALLATION.txt            (This file)
+└── settings_template.json      (Default settings)
+
+
+STEP 3: FIRST RUN
+───────────────────────────────────────────────────────────────
+• Go to: AttendanceTracker/ folder
+• Double-click: AttendanceTracker.exe
+• Windows may show security warning:
+  → Click "More info"
+  → Click "Run anyway"
+• Welcome dialog appears
+• Follow on-screen instructions
+
+
+STEP 4: CONFIGURE CAMERA
+───────────────────────────────────────────────────────────────
+• Click: Settings → Preferences
+• Go to "Camera" tab
+• Select your camera:
+  - 0 = Default webcam (most common)
+  - 1 = External USB camera
+  - Or enter IP camera URL
+• Click "Test Camera" button
+• If successful, click "Save Settings"
+• Restart application
+
+
+STEP 5: SET GOOGLE DRIVE FOLDER
+───────────────────────────────────────────────────────────────
+• Create a Google Drive folder for student images
+• Share folder publicly:
+  1. Right-click folder in Google Drive
+  2. Click "Share"
+  3. Change to "Anyone with the link can view"
+  4. Copy the folder URL
+• In app: Settings → Preferences → Google Drive
+• Paste folder URL
+• Click "Save Settings"
+
+
+STEP 6: ADD STUDENTS
+───────────────────────────────────────────────────────────────
+Method 1 - Manual:
+• Click: Students → Manage Students
+• Click "Add Student" button
+• Enter Student ID (numbers only)
+• Enter Student Name
+• Click "Add"
+• Repeat for each student
+
+Method 2 - Import CSV:
+• Create CSV file with format:
+  ID,Name
+  12345,Ahmed Mohamed
+  12346,Sara Ali
+• Click: Students → Manage Students
+• Click "Import from CSV"
+• Select your CSV file
+
+
+STEP 7: PREPARE STUDENT IMAGES
+───────────────────────────────────────────────────────────────
+For each student:
+• Take 5-10 clear photos of their face
+• Requirements:
+  - Good lighting
+  - Face visible clearly
+  - No sunglasses or masks
+  - One face per photo
+  - Different angles preferred
+
+Create ZIP files:
+• One ZIP per student
+• Name format: StudentName_StudentID.zip
+• Examples:
+  ✓ Ahmed-Mohamed_12345.zip
+  ✓ Sara_Ali_12346.zip
+  ✗ Ahmed Mohamed 12345.zip (wrong format)
+
+Upload to Google Drive:
+• Upload all ZIPs to your shared folder
+• Make sure folder is PUBLIC
+
+
+STEP 8: DOWNLOAD AND TRAIN
+───────────────────────────────────────────────────────────────
+• In app, click: "Download & Process Images"
+• Wait for progress:
+  1. Downloading from Google Drive...
+  2. Extracting faces from images...
+  3. Training model...
+• Check status bar: Should show "Model Status: Ready ✓"
+• You're ready to take attendance!
+
+
+SYSTEM REQUIREMENTS
+═══════════════════════════════════════════════════════════════
+
+MINIMUM:
+• Windows 10 64-bit
+• Intel Core i3 or equivalent
+• 4GB RAM
+• Webcam or IP camera
+• 2GB free disk space
+• Internet connection (for downloads)
+
+RECOMMENDED:
+• Windows 10/11 64-bit
+• Intel Core i5 or better
+• 8GB RAM
+• HD Webcam
+• 5GB free disk space
+• Stable internet connection
+
+
+TROUBLESHOOTING INSTALLATION
+═══════════════════════════════════════════════════════════════
+
+"WINDOWS PROTECTED YOUR PC" WARNING
+→ This is normal for unsigned executables
+→ Click "More info"
+→ Click "Run anyway"
+→ The app is safe - it's just not digitally signed
+
+APPLICATION WON'T START
+→ Make sure you extracted all files
+→ Run from extracted folder, not from inside ZIP
+→ Check if antivirus blocked it (add exception)
+→ Try running as Administrator (right-click → Run as admin)
+
+MISSING DLL ERRORS
+→ Make sure _internal/ folder is in same location as .exe
+→ Don't separate files from _internal/ folder
+→ Re-extract from ZIP if files are missing
+
+CAMERA NOT DETECTED
+→ Plug in camera before starting app
+→ Try different camera index in Settings (0, 1, 2)
+→ Check camera works in other apps (Camera app, Skype)
+→ Close other apps using the camera
+
+SLOW STARTUP
+→ First startup may take 20-30 seconds (loading TensorFlow)
+→ Subsequent starts should be faster
+→ Consider running from SSD for better performance
+
+
+CREATING DESKTOP SHORTCUT
+═══════════════════════════════════════════════════════════════
+
+1. Navigate to: AttendanceTracker/AttendanceTracker.exe
+2. Right-click on AttendanceTracker.exe
+3. Select "Send to" → "Desktop (create shortcut)"
+4. Rename shortcut if desired
+5. Double-click shortcut to run app
+
+
+UNINSTALLING
+═══════════════════════════════════════════════════════════════
+
+To remove AttendanceTracker:
+
+1. Delete the entire application folder
+2. That's it! No registry entries or system files
+3. To keep your data:
+   • Backup Attendance_Data/ folder (Excel files)
+   • Backup Faces/ folder (student images)
+   • Backup Models/ folder (trained models)
+   • Backup settings.json (your settings)
+
+
+UPDATING TO NEW VERSION
+═══════════════════════════════════════════════════════════════
+
+1. Backup your data:
+   • Copy Attendance_Data/ folder
+   • Copy Faces/ folder
+   • Copy Models/ folder
+   • Copy settings.json
+
+2. Download new version
+
+3. Extract to NEW folder (don't overwrite old version yet)
+
+4. Copy your backed-up data to new version folder:
+   • Paste Attendance_Data/ into new folder
+   • Paste Faces/ into new folder
+   • Paste Models/ into new folder
+   • Paste settings.json into new folder
+
+5. Test new version
+
+6. Delete old version when confirmed working
+
+
+SUPPORT
+═══════════════════════════════════════════════════════════════
+
+Need Help?
+• Check README.txt (complete user manual)
+• In-app: Help → Quick Start Guide
+• In-app: Help → Troubleshooting
+
+Still Having Issues?
+• Email: oximas2004@gmail.com
+• Include app.log file from application folder
+• Describe the problem in detail
+• Include screenshots if possible
+
+
+═══════════════════════════════════════════════════════════════
+           INSTALLATION COMPLETE - Enjoy AttendanceTracker!
+═══════════════════════════════════════════════════════════════

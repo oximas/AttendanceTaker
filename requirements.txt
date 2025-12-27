@@ -1,0 +1,29 @@
+# AttendanceTracker Requirements
+# Python 3.11.7
+
+# Core Dependencies
+opencv-python==4.8.1.78
+numpy==1.24.3
+Pillow==10.1.0
+
+# Face Recognition
+keras-facenet==0.3.2
+mtcnn==0.1.1
+scikit-learn==1.3.2
+tensorflow==2.15.0
+
+# Excel/Database
+openpyxl==3.1.2
+
+# Google Drive
+gdown==4.7.1
+
+# Progress Bar
+tqdm==4.66.1
+
+# GUI (included with Python)
+# tkinter - comes with Python
+
+# Note: If you get errors during installation, try:
+# pip install --upgrade pip
+# pip install -r requirements.txt --no-cache-dir
