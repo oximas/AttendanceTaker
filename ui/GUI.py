@@ -19,6 +19,8 @@ from services.ImageDownloader import ImageDownloadManager
 from ui.UIComponents import FaceNamingDialog, StatusBar, ImageDisplay, ButtonPanel
 from ui.DateSelectionDialog import DateSelectionDialog
 from ui.SettingsDialog import SettingsDialog
+from ui.StudentManagementDialog import StudentManagementDialog
+from ui.AttendanceViewerDialog import AttendanceViewerDialog
 from config import (
     WINDOW_WIDTH, WINDOW_HEIGHT, COLOR_PRIMARY_BG,
     COLOR_SUCCESS, COLOR_WARNING, COLOR_ERROR, COLOR_INFO,
@@ -170,6 +172,14 @@ class CameraApp:
         file_menu.add_command(label="Save Current Capture...", command=self._on_save_image)
         file_menu.add_separator()
         file_menu.add_command(label="Exit", command=self._on_close)
+        
+        # Students Menu
+        students_menu = tk.Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="Students", menu=students_menu)
+        students_menu.add_command(label="Manage Students...", command=self._manage_students)
+        students_menu.add_command(label="Take Attendance", command=self._on_take_attendance)
+        students_menu.add_separator()
+        students_menu.add_command(label="View Attendance Records...", command=self._view_attendance)
         
         # Settings Menu
         settings_menu = tk.Menu(menubar, tearoff=0)
@@ -697,6 +707,14 @@ class CameraApp:
         SettingsDialog(self.root).show()
         # Refresh model status in case settings changed
         self._update_model_status()
+    
+    def _manage_students(self):
+        """Open student management dialog."""
+        StudentManagementDialog(self.root).show()
+    
+    def _view_attendance(self):
+        """Open attendance viewer dialog."""
+        AttendanceViewerDialog(self.root).show()
     
     def _show_about(self):
         """Show about dialog."""
