@@ -1,7 +1,8 @@
 """
 build_exe.py
-Automated build script for creating App executable.
-FIXED VERSION: Handles Python DLL issues properly + MTCNN assets fix.
+Automated build script for creating distributable executable.
+Organizes all build artifacts in {APP_NAME}_build folder.
+Fixes PyInstaller issues with stdout/stderr and missing dependencies.
 """
 
 import os
@@ -13,11 +14,15 @@ from pathlib import Path
 # Build configuration
 APP_NAME = "Attendio"
 VERSION = "0.9-beta"
-ICON_FILE = "logo.ico"  # Optional
+ICON_FILE = "logo.ico"
 MAIN_SCRIPT = "main.py"
-DIST_FOLDER = "dist"
-BUILD_FOLDER = "build"
-OUTPUT_FOLDER = f"{APP_NAME}_v{VERSION}"
+
+# Organized build structure
+BUILD_ROOT = f"{APP_NAME}_build"
+DIST_FOLDER = os.path.join(BUILD_ROOT, "dist")
+BUILD_FOLDER = os.path.join(BUILD_ROOT, "build")
+OUTPUT_FOLDER = os.path.join(BUILD_ROOT, f"{APP_NAME}_v{VERSION}")
+ZIP_OUTPUT = os.path.join(BUILD_ROOT, f"{APP_NAME}_v{VERSION}.zip")
 
 # Colors for terminal output
 class Colors:
@@ -102,41 +107,40 @@ def clean_previous_builds():
     """Clean previous build artifacts."""
     print_step("STEP 4: Cleaning Previous Builds")
     
-    folders_to_clean = [BUILD_FOLDER, DIST_FOLDER, OUTPUT_FOLDER]
-    
-    for folder in folders_to_clean:
-        if os.path.exists(folder):
-            shutil.rmtree(folder)
-            print_success(f"Removed {folder}/")
+    if os.path.exists(BUILD_ROOT):
+        shutil.rmtree(BUILD_ROOT)
+        print_success(f"Removed {BUILD_ROOT}/")
     
     print_success("Clean complete")
 
 def build_executable():
-    """Build executable using PyInstaller with DLL fix."""
-    print_step("STEP 5: Building Executable (with DLL and MTCNN fixes)")
+    """Build executable using PyInstaller with all fixes."""
+    print_step("STEP 5: Building Executable")
     
-    # PyInstaller command with DLL handling
+    # Create build root
+    os.makedirs(BUILD_ROOT, exist_ok=True)
+    
+    # PyInstaller command
     cmd = [
         'pyinstaller',
-        '--onedir',  # Use onedir to avoid DLL issues
+        '--onedir',
         '--windowed',  # No console window
         f'--name={APP_NAME}',
         '--clean',
         '--noconfirm',
-        
-        # CRITICAL: Add these to fix DLL issues
-        '--noupx',  # Disable UPX compression (can cause DLL issues)
-        '--debug=imports',  # Show import debugging info
+        f'--distpath={DIST_FOLDER}',
+        f'--workpath={BUILD_FOLDER}',
+        f'--specpath={BUILD_ROOT}',
+        '--noupx',
+        '--debug=imports',
     ]
     
     # Add icon if exists
     if os.path.exists(ICON_FILE):
         cmd.append(f'--icon={ICON_FILE}')
         print_success(f"Using icon: {ICON_FILE}")
-    else:
-        print_warning(f"No icon file found: {ICON_FILE}")
     
-    # Hidden imports - EXPANDED for better compatibility
+    # Hidden imports - EXPANDED with fixes
     hidden_imports = [
         # Core ML/AI
         'tensorflow',
@@ -144,7 +148,7 @@ def build_executable():
         'tensorflow.python.ops',
         'keras_facenet',
         'mtcnn',
-        'mtcnn.assets',  # CRITICAL FIX - Added this for MTCNN assets
+        'mtcnn.assets',
         
         # CV/Image
         'cv2',
@@ -161,41 +165,48 @@ def build_executable():
         'sklearn.utils._weight_vector',
         'sklearn.neighbors._typedefs',
         'sklearn.utils._typedefs',
-        'sklearn.metrics.pairwise',  # ADDED - for cosine_similarity in face recognition
+        'sklearn.metrics.pairwise',
         
-        # Download
+        # Download - CRITICAL FIX
         'gdown',
+        'gdown.download',
+        'gdown.download_folder',
         'tqdm',
+        'tqdm.std',
+        'tqdm.utils',
         
-        # Standard lib that sometimes need explicit import
+        # Standard lib
         'queue',
         'logging.handlers',
+        'warnings',
     ]
     
     for imp in hidden_imports:
         cmd.append(f'--hidden-import={imp}')
     
-    # Collect all data files - CRITICAL for model weights
+    # Collect all data files
     cmd.extend([
         '--collect-all=tensorflow',
         '--collect-all=keras_facenet',
-        '--collect-all=mtcnn',  # This collects MTCNN model weight files
+        '--collect-all=mtcnn',
+        '--collect-all=gdown',  # ADDED - Fix for gdown
         '--copy-metadata=tensorflow',
         '--copy-metadata=keras-facenet',
-        '--copy-metadata=mtcnn',  # ADDED - copy MTCNN metadata
+        '--copy-metadata=mtcnn',
+        '--copy-metadata=gdown',  # ADDED
+        '--copy-metadata=tqdm',  # ADDED
     ])
     
     # Add main script
     cmd.append(MAIN_SCRIPT)
     
-    print(f"Running: {' '.join(cmd[:10])}... (full command is long)\n")
+    print(f"Running PyInstaller...\n")
     
     # Run PyInstaller
     result = subprocess.run(cmd, capture_output=False)
     
     if result.returncode != 0:
         print_error("PyInstaller build failed!")
-        print_warning("Check the output above for errors")
         return False
     
     print_success("Executable built successfully")
@@ -217,15 +228,8 @@ def verify_build():
     internal_path = os.path.join(DIST_FOLDER, APP_NAME, "_internal")
     if os.path.exists(internal_path):
         print_success(f"Dependencies folder found: _internal/")
-        
-        # Check if MTCNN assets are included
-        mtcnn_assets_path = os.path.join(internal_path, "mtcnn", "assets")
-        if os.path.exists(mtcnn_assets_path):
-            print_success(f"MTCNN assets folder found: mtcnn/assets/")
-        else:
-            print_warning("MTCNN assets folder not found (might cause issues)")
     else:
-        print_warning("_internal folder not found (might cause issues)")
+        print_warning("_internal folder not found")
     
     # Check file size
     size_mb = os.path.getsize(exe_path) / (1024 * 1024)
@@ -261,7 +265,7 @@ def create_distribution_package():
         else:
             print_warning(f"{doc} not found (skipping)")
     
-    # Create required folders
+    # Create required folders in OUTPUT_FOLDER (not inside exe folder)
     folders_to_create = ['Faces', 'Models', 'Downloaded_Faces', 'Attendance_Data']
     
     for folder in folders_to_create:
@@ -276,11 +280,13 @@ def create_zip_archive():
     """Create ZIP archive of distribution package."""
     print_step("STEP 8: Creating ZIP Archive")
     
-    archive_name = f"{OUTPUT_FOLDER}"
-    
     try:
-        shutil.make_archive(archive_name, 'zip', OUTPUT_FOLDER)
-        print_success(f"Created {archive_name}.zip")
+        shutil.make_archive(
+            os.path.join(BUILD_ROOT, f"{APP_NAME}_v{VERSION}"),
+            'zip',
+            OUTPUT_FOLDER
+        )
+        print_success(f"Created {APP_NAME}_v{VERSION}.zip in {BUILD_ROOT}/")
         return True
     except Exception as e:
         print_error(f"Failed to create ZIP: {e}")
@@ -294,37 +300,44 @@ def print_summary():
     print(f"{Colors.GREEN}✓ {APP_NAME} v{VERSION} built successfully!{Colors.END}")
     print(f"{Colors.GREEN}{'='*60}{Colors.END}\n")
     
-    exe_path = f"{OUTPUT_FOLDER}/{APP_NAME}/{APP_NAME}.exe"
+    print(f"📁 All build files in: {BUILD_ROOT}/")
+    print(f"   ├── dist/          (PyInstaller output)")
+    print(f"   ├── build/         (PyInstaller temp files)")
+    print(f"   ├── {APP_NAME}_v{VERSION}/  (Distribution folder)")
+    print(f"   └── {APP_NAME}_v{VERSION}.zip  (Final distributable)")
     
-    print(f"📦 Distribution package: {OUTPUT_FOLDER}/")
-    print(f"📦 ZIP archive: {OUTPUT_FOLDER}.zip")
-    print(f"\n🚀 Executable location: {exe_path}")
+    exe_path = os.path.join(OUTPUT_FOLDER, APP_NAME, f"{APP_NAME}.exe")
     
-    print(f"\n{Colors.YELLOW}⚠ IMPORTANT - READ THIS:{Colors.END}")
-    print(f"  • DO NOT run from build/ folder")
-    print(f"  • ONLY run from dist/{APP_NAME}/ or {OUTPUT_FOLDER}/")
+    print(f"\n🚀 Test the executable:")
+    print(f"   {exe_path}")
+    
+    print(f"\n📦 Distribute this ZIP:")
+    print(f"   {ZIP_OUTPUT}")
+    
+    print(f"\n{Colors.YELLOW}⚠ IMPORTANT:{Colors.END}")
+    print(f"  • Test the .exe BEFORE distributing")
+    print(f"  • Unzip and run from the extracted folder")
     print(f"  • Keep .exe and _internal/ folder together")
-    print(f"  • If DLL errors: Install Visual C++ Redistributable")
+    print(f"  • Data folders (Faces, Models, etc.) are OUTSIDE the exe folder")
     
-    print(f"\n{Colors.BLUE}NEXT STEPS:{Colors.END}")
-    print(f"1. Test: {exe_path}")
-    print(f"2. If 'python311.dll' error:")
-    print(f"   → Install: https://aka.ms/vs/17/release/vc_redist.x64.exe")
-    print(f"3. Distribute: {OUTPUT_FOLDER}.zip")
-    
-    print(f"\n{Colors.BLUE}Distribution includes:{Colors.END}")
-    print(f"  ✓ {APP_NAME}.exe")
-    print(f"  ✓ All dependencies (_internal folder)")
-    print(f"  ✓ MTCNN model weights (mtcnn/assets/)")
-    print(f"  ✓ README.txt (user manual)")
-    print(f"  ✓ INSTALLATION.txt (setup guide)")
-    print(f"  ✓ Required folders (Faces, Models, etc.)")
+    print(f"\n{Colors.BLUE}DISTRIBUTION STRUCTURE:{Colors.END}")
+    print(f"  {APP_NAME}_v{VERSION}/")
+    print(f"  ├── {APP_NAME}/           ← Application folder")
+    print(f"  │   ├── {APP_NAME}.exe    ← Run this!")
+    print(f"  │   └── _internal/        ← Dependencies")
+    print(f"  ├── Faces/                ← Face images (empty)")
+    print(f"  ├── Models/               ← Trained models (empty)")
+    print(f"  ├── Downloaded_Faces/     ← Downloaded zips (empty)")
+    print(f"  ├── Attendance_Data/      ← Excel files (created on first run)")
+    print(f"  ├── README.txt")
+    print(f"  ├── INSTALLATION.txt")
+    print(f"  └── settings_template.json")
 
 def main():
     """Main build process."""
     print(f"\n{Colors.BLUE}{'='*60}{Colors.END}")
     print(f"{Colors.BLUE}{APP_NAME} Build Script v{VERSION}{Colors.END}")
-    print(f"{Colors.BLUE}FIXED VERSION - Handles DLL and MTCNN issues{Colors.END}")
+    print(f"{Colors.BLUE}ORGANIZED BUILD - All artifacts in {BUILD_ROOT}/{Colors.END}")
     print(f"{Colors.BLUE}{'='*60}{Colors.END}\n")
     
     # Run build steps

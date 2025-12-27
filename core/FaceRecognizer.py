@@ -1,21 +1,20 @@
 """
 core/FaceRecognizer.py
-Face Recognition module with FaceNet embeddings.
-Handles face recognition using FaceNet embeddings.
-Separated concerns: embedding generation, model management, prediction.
-Logs training and recognition operations.
+Face recognition engine using FaceNet embeddings and cosine similarity.
+Handles training from stored face images and prediction for new faces.
+Fixed for PyInstaller: Suppresses FaceNet progress output to prevent stdout errors.
 """
 
 import os
+import sys
 import numpy as np
 from keras_facenet import FaceNet
 from sklearn.metrics.pairwise import cosine_similarity
-from tqdm import tqdm
 
 from core.FaceDetector import FaceDetector
 from core.FaceImageProcessor import FaceImageProcessor
 from storage.FaceStorage import FaceStorage
-from logger import log_info, log_error, log_warning, log_section
+from logger import log_info, log_error, log_warning, log_debug
 from config import (
     MODELS_DIR, CONFIDENCE_THRESHOLD,
     DEFAULT_MODEL_NAME, EMBEDDINGS_SUFFIX, LABELS_SUFFIX
@@ -23,15 +22,29 @@ from config import (
 
 
 class EmbeddingGenerator:
-    """Generates face embeddings using FaceNet."""
+    """Generates face embeddings using FaceNet with stdout suppression."""
     
     def __init__(self):
-        self.embedder = FaceNet()
+        # Suppress FaceNet verbose output for PyInstaller
+        import warnings
+        warnings.filterwarnings('ignore')
+        
+        # Temporarily redirect stdout during FaceNet init
+        old_stdout = sys.stdout
+        old_stderr = sys.stderr
+        try:
+            sys.stdout = open(os.devnull, 'w')
+            sys.stderr = open(os.devnull, 'w')
+            self.embedder = FaceNet()
+        finally:
+            sys.stdout = old_stdout
+            sys.stderr = old_stderr
+        
         log_info("FaceNet embedder initialized")
     
     def generate(self, face_image):
         """
-        Generate embedding for a face image.
+        Generate embedding for a face image with suppressed output.
         
         Args:
             face_image: Face image (160x160)
@@ -43,7 +56,17 @@ class EmbeddingGenerator:
             return None
         
         try:
-            embedding = self.embedder.embeddings([face_image])[0]
+            # Suppress FaceNet progress output
+            old_stdout = sys.stdout
+            old_stderr = sys.stderr
+            try:
+                sys.stdout = open(os.devnull, 'w')
+                sys.stderr = open(os.devnull, 'w')
+                embedding = self.embedder.embeddings([face_image])[0]
+            finally:
+                sys.stdout = old_stdout
+                sys.stderr = old_stderr
+            
             return embedding
         except Exception as e:
             log_error(f"Failed to generate embedding", e)
@@ -112,8 +135,8 @@ class ModelStorage:
 
 class FaceRecognizer:
     """
-    Main face recognition class.
-    Coordinates embedding generation, training, and prediction.
+    Face recognition coordinator.
+    Handles training from stored faces and prediction for new faces.
     """
     
     def __init__(self):
@@ -126,37 +149,67 @@ class FaceRecognizer:
         self.embeddings = None
         self.labels = None
     
-    def _process_person_images(self, person_name, progress_callback=None):
+    def _process_person_images(self, person_id, progress_callback=None):
         """
-        Load and process all images for a person.
+        Load and process all saved images for a person.
         
         Args:
-            person_name: Name of the person
-            progress_callback: Optional callback(message) for progress updates
+            person_id: Student ID
+            progress_callback: Optional callback for progress updates
             
         Returns:
             list: List of embeddings for this person
         """
-        images = self.face_storage.load_person_images(person_name)
+        images = self.face_storage.load_person_images(person_id)
+        
+        if not images:
+            log_warning(f"No images found for student ID: {person_id}")
+            return []
+        
         embeddings = []
         
-        for img, _ in images:
-            # Detect largest face
-            face_data = self.detector.get_largest_face(img)
-            if not face_data:
+        for img, img_path in images:
+            try:
+                # Use detect() for consistency with extraction pipeline
+                count, boxes = self.detector.detect(img)
+                
+                if count == 0:
+                    log_debug(f"No face detected in {img_path}")
+                    continue
+                
+                if count > 1:
+                    log_debug(f"Multiple faces in {img_path}, using first")
+                
+                # Use first detected face
+                box = boxes[0]
+                
+                # Crop and resize
+                face = self.processor.crop_face(img, box)
+                if face is None:
+                    log_debug(f"Failed to crop face from {img_path}")
+                    continue
+                
+                face = self.processor.resize_face(face)
+                if face is None:
+                    log_debug(f"Failed to resize face from {img_path}")
+                    continue
+                
+                # Generate embedding
+                embedding = self.embedding_gen.generate(face)
+                if embedding is not None:
+                    embeddings.append(embedding)
+                    log_debug(f"Processed face from {img_path}")
+                else:
+                    log_debug(f"Failed to generate embedding from {img_path}")
+                    
+            except Exception as e:
+                log_error(f"Error processing {img_path}", e)
                 continue
-            
-            # Crop and resize face
-            face = self.processor.crop_face(img, face_data['box'])
-            face = self.processor.resize_face(face)
-            
-            if face is None:
-                continue
-            
-            # Generate embedding
-            embedding = self.embedding_gen.generate(face)
-            if embedding is not None:
-                embeddings.append(embedding)
+        
+        if embeddings:
+            log_info(f"Student {person_id}: Processed {len(embeddings)}/{len(images)} images")
+        else:
+            log_warning(f"Student {person_id}: Failed to process any of {len(images)} images")
         
         return embeddings
     
@@ -173,34 +226,35 @@ class FaceRecognizer:
         people = self.face_storage.list_people()
         
         if not people:
-            msg = "No people found in face storage for training"
+            msg = "No students found in Faces folder"
             log_error(msg)
             if progress_callback:
                 progress_callback(f"✗ Error: {msg}")
-            raise RuntimeError("No people found in face storage")
+            raise RuntimeError(msg)
         
         embeddings_list = []
         labels_list = []
         
-        log_section("TRAINING MODEL")
         if progress_callback:
-            progress_callback("="*60)
-            progress_callback("TRAINING MODEL")
-            progress_callback("="*60)
             progress_callback(f"Training started: {len(people)} students")
         
         log_info(f"Training started: {len(people)} students")
         
         # Process each person
-        for idx, person_name in enumerate(people, 1):
+        for idx, person_id in enumerate(people, 1):
             if progress_callback:
-                progress_callback(f"Processing student {idx}/{len(people)}: {person_name}")
+                progress_callback(f"Processing student {idx}/{len(people)}: {person_id}")
             
-            person_embeddings = self._process_person_images(person_name, progress_callback)
+            person_embeddings = self._process_person_images(person_id, progress_callback)
+            
+            if not person_embeddings:
+                if progress_callback:
+                    progress_callback(f"  ⚠ No valid faces found for student {person_id}")
+                continue
             
             for embedding in person_embeddings:
                 embeddings_list.append(embedding)
-                labels_list.append(person_name)
+                labels_list.append(person_id)
             
             if progress_callback:
                 progress_callback(f"  → Found {len(person_embeddings)} face(s)")
@@ -210,20 +264,21 @@ class FaceRecognizer:
             log_error(msg)
             if progress_callback:
                 progress_callback(f"✗ Error: {msg}")
-            raise RuntimeError("No valid faces found for training")
+            raise RuntimeError(msg)
         
         self.embeddings = np.array(embeddings_list)
         self.labels = np.array(labels_list)
         
-        log_info(f"Training complete: {len(self.embeddings)} embeddings from {len(people)} students")
+        unique_students = len(set(labels_list))
+        log_info(f"Training complete: {len(self.embeddings)} embeddings from {unique_students} students")
         
         if progress_callback:
             progress_callback("")
             progress_callback(f"✓ Training complete!")
             progress_callback(f"  Total faces: {len(self.embeddings)}")
-            progress_callback(f"  Total students: {len(people)}")
+            progress_callback(f"  Total students: {unique_students}")
         
-        return len(self.embeddings), len(people)
+        return len(self.embeddings), unique_students
     
     def save_model(self, model_name=DEFAULT_MODEL_NAME):
         """Save trained model to disk."""
@@ -263,7 +318,7 @@ class FaceRecognizer:
             threshold: Confidence threshold
             
         Returns:
-            tuple: (name, confidence)
+            tuple: (student_id, confidence)
         """
         if not self.has_trained_model():
             return "Unknown", 0.0
@@ -273,23 +328,23 @@ class FaceRecognizer:
         best_score = float(similarities[best_idx])
         
         if best_score >= threshold:
-            recognized_name = str(self.labels[best_idx])
-            log_info(f"Face recognized: {recognized_name} (confidence: {best_score:.2f})")
-            return recognized_name, best_score
+            recognized_id = str(self.labels[best_idx])
+            log_info(f"Face recognized: ID {recognized_id} (confidence: {best_score:.2f})")
+            return recognized_id, best_score
         
-        log_warning(f"Unknown face detected (best match: {best_score:.2f}, threshold: {threshold})")
+        log_debug(f"Unknown face (best match: {best_score:.2f}, threshold: {threshold})")
         return "Unknown", best_score
     
     def predict_face(self, face_image, threshold=CONFIDENCE_THRESHOLD):
         """
-        Predict name for a face image.
+        Predict student ID for a face image.
         
         Args:
             face_image: Face image (should be 160x160)
             threshold: Confidence threshold
             
         Returns:
-            tuple: (name, confidence)
+            tuple: (student_id, confidence)
         """
         embedding = self.embedding_gen.generate(face_image)
         
@@ -300,7 +355,7 @@ class FaceRecognizer:
     
     def predict_from_box(self, image, box, threshold=CONFIDENCE_THRESHOLD):
         """
-        Predict name from image and bounding box.
+        Predict student ID from image and bounding box.
         
         Args:
             image: Source image
@@ -308,7 +363,7 @@ class FaceRecognizer:
             threshold: Confidence threshold
             
         Returns:
-            tuple: (name, confidence)
+            tuple: (student_id, confidence)
         """
         face = self.processor.crop_face(image, box)
         face = self.processor.resize_face(face)
@@ -317,19 +372,3 @@ class FaceRecognizer:
             return "Unknown", 0.0
         
         return self.predict_face(face, threshold)
-
-
-if __name__ == "__main__":
-    # Example usage
-    recognizer = FaceRecognizer()
-    
-    try:
-        def progress(msg):
-            print(msg)
-        
-        num_faces, num_people = recognizer.train(progress_callback=progress)
-        recognizer.save_model()
-        print(f"\nTrained on {num_faces} faces from {num_people} people")
-        
-    except Exception as e:
-        print(f"Error: {e}")

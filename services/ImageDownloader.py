@@ -1,12 +1,12 @@
 """
 services/ImageDownloader.py
-Downloads images from Google Drive and extracts zip files.
-Handles folder downloading, zip extraction, student ID/name extraction, and cleanup operations.
-Updates student database with extracted information.
-Logs all download and extraction operations.
+Downloads and processes student images from Google Drive.
+Handles zip file extraction, student database updates, and file organization.
+Fixed for PyInstaller: Suppresses gdown progress output to prevent stdout errors.
 """
 
 import os
+import sys
 import zipfile
 import gdown
 import re
@@ -17,7 +17,7 @@ from logger import log_info, log_warning, log_error, log_section
 
 
 class GoogleDriveDownloader:
-    """Handles downloading files from Google Drive."""
+    """Handles downloading files from Google Drive with stdout suppression."""
     
     @staticmethod
     def extract_folder_id(folder_url):
@@ -37,7 +37,7 @@ class GoogleDriveDownloader:
     @staticmethod
     def download_folder(folder_url, output_dir):
         """
-        Download all files from a Google Drive folder.
+        Download all files from a Google Drive folder with suppressed output.
         
         Args:
             folder_url: Google Drive folder URL
@@ -51,12 +51,22 @@ class GoogleDriveDownloader:
             
             log_info(f"Starting download from Google Drive folder: {folder_id}")
             
-            gdown.download_folder(
-                id=folder_id,
-                output=output_dir,
-                quiet=False,
-                use_cookies=False
-            )
+            # Suppress gdown progress output for PyInstaller
+            old_stdout = sys.stdout
+            old_stderr = sys.stderr
+            try:
+                sys.stdout = open(os.devnull, 'w')
+                sys.stderr = open(os.devnull, 'w')
+                
+                gdown.download_folder(
+                    id=folder_id,
+                    output=output_dir,
+                    quiet=True,  # Suppress output
+                    use_cookies=False
+                )
+            finally:
+                sys.stdout = old_stdout
+                sys.stderr = old_stderr
             
             log_info("Download completed successfully")
             return True
@@ -75,10 +85,10 @@ class StudentInfoExtractor:
         Sanitize student name by removing non-alphabetic characters and numbers.
         
         Args:
-            raw_name: Raw name from zip file (e.g., "Omar-Ashraf-Shokry123")
+            raw_name: Raw name from zip file
             
         Returns:
-            str: Sanitized name (e.g., "Omar Ashraf Shokry")
+            str: Sanitized name
         """
         # Replace all non-alphabetic characters (except spaces) with space
         sanitized = re.sub(r'[^a-zA-Z\s]', ' ', raw_name)
@@ -98,7 +108,7 @@ class StudentInfoExtractor:
         Expected format: Name_ID.zip
         
         Args:
-            zip_filename: Zip file name (e.g., "Omar-Ashraf-Shokry_22010951.zip")
+            zip_filename: Zip file name
             
         Returns:
             tuple: (student_id, student_name) or (None, None) if invalid format
@@ -106,7 +116,7 @@ class StudentInfoExtractor:
         # Remove .zip extension
         name_without_ext = zip_filename.replace('.zip', '')
         
-        # Split by underscore from right (to handle names with underscores)
+        # Split by underscore from right
         parts = name_without_ext.rsplit('_', 1)
         
         if len(parts) != 2:
@@ -177,7 +187,7 @@ class ZipExtractor:
         """
         zip_filename = zip_path.name
         
-        # Extract ID and name (with sanitization)
+        # Extract ID and name
         student_id, student_name = StudentInfoExtractor.extract_id_and_name(zip_filename)
         
         if not student_id:
@@ -185,7 +195,7 @@ class ZipExtractor:
             StudentInfoExtractor.log_invalid_format(zip_filename, WRONG_FORMAT_LOG_FILE)
             return None, None, None
         
-        # Add student to database with sanitized name
+        # Add student to database
         self.student_db.add_student(student_id, student_name)
         
         # Use ID as folder name
@@ -254,7 +264,7 @@ class ImageDownloadManager:
             # Download files
             success = self.downloader.download_folder(folder_url, self.output_dir)
             if not success:
-                return {'success': False}
+                return {'success': False, 'error': 'Download failed'}
             
             # Extract zips and update database
             log_section("EXTRACTING ZIP FILES")
@@ -339,23 +349,3 @@ class ImageDownloadManager:
         except Exception as e:
             log_error(f"Error processing {zip_path.name}", e)
             return 'error'
-
-
-def main():
-    """Main entry point."""
-    # Google Drive folder URL
-    url = "https://drive.google.com/drive/folders/1pZBcKW5CpQORjYXAnPZrHHeV0MtWNTHx"
-    
-    # Download and extract
-    manager = ImageDownloadManager(output_dir=DOWNLOADS_DIR)
-    result = manager.download_and_extract(url)
-    
-    if result.get('success'):
-        print(f"\nAll files extracted to '{DOWNLOADS_DIR}' folder.")
-        print(f"Student database updated with {result.get('extracted', 0)} students.")
-    else:
-        print("\nDownload/extraction failed.")
-
-
-if __name__ == "__main__":
-    main()

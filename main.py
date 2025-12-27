@@ -1,10 +1,21 @@
 """
 main.py
-Main entry point for Face Recognition System.
-Checks for first run and logs application startup/shutdown.
+Main entry point for the Face Recognition Attendance System.
+Handles first-run detection, stdout/stderr redirection for PyInstaller builds,
+and initializes the GUI application with proper error handling.
 """
 
 import os
+import sys
+
+# CRITICAL FIX for PyInstaller --windowed mode
+# Redirect stdout/stderr to prevent 'NoneType' has no attribute 'write' errors
+if sys.stdout is None:
+    sys.stdout = open(os.devnull, 'w')
+if sys.stderr is None:
+    sys.stderr = open(os.devnull, 'w')
+
+# Now safe to import everything else
 from ui.GUI import main
 from logger import log_startup, log_shutdown, log_error, log_info
 

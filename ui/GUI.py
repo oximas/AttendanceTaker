@@ -1,8 +1,8 @@
 """
 ui/GUI.py
 Main GUI application with live camera feed, face detection, and menu bar.
-Provides menu-based access to file operations, settings, and help.
-FIXED: Removed stdout redirection, using callback pattern for training progress.
+Handles user interactions, camera display, face capture, and coordinates training workflow.
+Training occurs only after: (1) Download & Process completes, or (2) User finishes naming unknown faces.
 """
 
 import tkinter as tk
@@ -126,7 +126,6 @@ class CaptureWindow:
     def show_image(self, pil_image):
         """Display PIL image in window."""
         if pil_image is None:
-            print("image is none")
             return
         
         # Resize to fit window
@@ -141,7 +140,7 @@ class CaptureWindow:
 
 
 class CameraApp:
-    """Main application with live camera feed and AUTO-TRAINING."""
+    """Main application with live camera feed and proper training workflow."""
     
     def __init__(self, root, first_run=False):
         self.root = root
@@ -152,6 +151,7 @@ class CameraApp:
         
         self.live_feed_active = True
         self.live_feed_thread = None
+        self.is_training = False  # Flag to prevent concurrent training
         
         self._setup_window()
         self._create_menu_bar()
@@ -181,6 +181,8 @@ class CameraApp:
         file_menu = tk.Menu(menubar, tearoff=0)
         menubar.add_cascade(label="File", menu=file_menu)
         file_menu.add_command(label="Save Current Capture...", command=self._on_save_image)
+        file_menu.add_separator()
+        file_menu.add_command(label="Process Downloaded Zip Files", command=self._on_process_zips)
         file_menu.add_separator()
         file_menu.add_command(label="Exit", command=self._on_close)
         
@@ -411,7 +413,7 @@ class CameraApp:
                 )
 
             except Exception as e:
-                print(f"Live feed error: {e}")
+                log_error("Live feed error", e)
     
     def _update_live_display(self, pil_image, count):
         """Update the live feed display."""
@@ -440,68 +442,70 @@ class CameraApp:
             return Image.fromarray(cv_image)
         return cv_image
     
-    def _auto_train_with_dialog(self, title="Training Model"):
+    def _train_model_with_dialog(self, title="Training Model"):
         """
-        Auto-train with progress dialog using callback pattern.
+        Train model with progress dialog.
+        Prevents concurrent training using flag.
         
         Args:
             title: Dialog title
             
         Returns:
-            dict: Training result or None if failed
+            bool: True if training succeeded
         """
+        if self.is_training:
+            log_warning("Training already in progress, skipping duplicate call")
+            return False
+        
+        self.is_training = True
         dialog = ProcessingDialog(self.root, title)
-        result = {'success': False}
+        success = False
         
         def train():
+            nonlocal success
             try:
                 dialog.append("="*60)
                 dialog.append("TRAINING MODEL")
                 dialog.append("="*60)
                 
-                # Check and train with callback
-                train_result = self.service.check_and_train_if_needed(
+                # Train with callback
+                train_result = self.service.train_model_now(
                     progress_callback=dialog.append
                 )
                 
-                if train_result['trained']:
-                    dialog.append(f"\n✓ Training complete!")
-                    dialog.append(f"  Total faces: {train_result['num_faces']}")
-                    dialog.append(f"  Total students: {train_result['num_students']}")
-                    result['success'] = True
-                    result['data'] = train_result
-                else:
-                    dialog.append(f"\n✓ {train_result['reason']}")
-                    result['success'] = True
-                    result['data'] = train_result
+                dialog.append(f"\n✓ Training complete!")
+                dialog.append(f"  Total faces: {train_result['num_faces']}")
+                dialog.append(f"  Total students: {train_result['num_students']}")
                 
                 dialog.append("\n" + "="*60)
                 dialog.append("You may close this window now")
                 dialog.append("="*60)
                 dialog.enable_close()
                 
+                success = True
+                
                 # Update UI
                 self.root.after(0, self._update_model_status)
+                self.root.after(0, lambda: self.attendance_panel.enable("take_attendance"))
                 
             except Exception as e:
                 dialog.append(f"\n✗ Error: {str(e)}")
+                dialog.append("\n" + "="*60)
+                dialog.append("You may close this window now")
+                dialog.append("="*60)
                 dialog.enable_close()
-                result['success'] = False
+                log_error("Training failed", e)
+            finally:
+                self.is_training = False
         
         thread = threading.Thread(target=train, daemon=True)
         thread.start()
         
-        return result
+        return success
     
     def _on_capture(self):
-        """Handle capture button - freeze frame and run recognition."""
+        """Handle capture button - REMOVED premature training check."""
         try:
-            # Check if training needed before capture
-            status = self.service.get_model_status()
-            if status['needs_training']:
-                self.status_bar.update("Training model before capture...", COLOR_INFO)
-                self._auto_train_with_dialog("Auto-Training Before Capture")
-            
             self.status_bar.update("Capturing stable frame...", COLOR_INFO)
             
             # Capture multiple frames for stable detection
@@ -570,7 +574,10 @@ class CameraApp:
             self._name_unknown_faces(unknown)
     
     def _name_unknown_faces(self, unknown_list):
-        """Open dialog to name unknown faces and auto-train if new faces added."""
+        """
+        Open dialog to name unknown faces.
+        AUTOMATICALLY trains model after user finishes naming.
+        """
         unknown_faces = [face for _, face in unknown_list]
         
         # Get current student IDs before naming
@@ -592,21 +599,30 @@ class CameraApp:
                 new_ids = ids_after - ids_before
                 
                 if new_ids:
-                    # Auto-train with new faces
+                    log_info(f"New students added: {new_ids}")
+                    
+                    # Show info message
+                    messagebox.showinfo(
+                        "Faces Saved",
+                        f"Saved {named_count} face(s)!\n\nNow training model...",
+                        parent=self.root
+                    )
+                    
+                    # AUTOMATIC TRAINING after naming
                     self.status_bar.update(
                         f"Training model with {len(new_ids)} new student(s)...",
                         COLOR_INFO
                     )
-                    self._auto_train_with_dialog("Training with New Students")
-                
-                messagebox.showinfo(
-                    "Success",
-                    f"Saved {named_count} face(s)!",
-                    parent=self.root
-                )
+                    self._train_model_with_dialog("Training with New Students")
+                else:
+                    messagebox.showinfo(
+                        "Faces Saved",
+                        f"Saved {named_count} face(s)!",
+                        parent=self.root
+                    )
     
     def _on_download_and_process(self):
-        """Handle download and process button with AUTO-TRAINING using callbacks."""
+        """Handle download and process button with automatic training."""
         dialog = ProcessingDialog(self.root, "Download & Process Images")
         
         def process():
@@ -619,7 +635,19 @@ class CameraApp:
                 result = downloader.download_and_extract(GOOGLE_DRIVE_FOLDER_URL)
                 
                 if not result.get('success'):
-                    dialog.append("\n✗ Download failed!")
+                    error_msg = result.get('error', 'Unknown error')
+                    dialog.append(f"\n✗ Download failed: {error_msg}")
+                    dialog.append("\n" + "="*60)
+                    dialog.append("MANUAL DOWNLOAD INSTRUCTIONS")
+                    dialog.append("="*60)
+                    dialog.append("1. Open Settings → Preferences → Google Drive")
+                    dialog.append("2. Copy the Google Drive folder URL")
+                    dialog.append("3. Open the URL in your browser")
+                    dialog.append("4. Download all zip files manually")
+                    dialog.append("5. Place them in 'Downloaded_Faces' folder")
+                    dialog.append("6. Zip file format: StudentName_StudentID.zip")
+                    dialog.append("   Example: Ahmed-Hassan_12345.zip")
+                    dialog.append("7. Use File → Process Downloaded Zip Files")
                     dialog.append("\n" + "="*60)
                     dialog.append("You may close this window now")
                     dialog.append("="*60)
@@ -642,7 +670,7 @@ class CameraApp:
                     dialog.append("STEP 3: TRAINING MODEL")
                     dialog.append("="*60)
                     
-                    # AUTO-TRAIN after extraction with callback
+                    # Train model with callback
                     train_result = self.service.train_model_now(
                         progress_callback=dialog.append
                     )
@@ -657,6 +685,8 @@ class CameraApp:
                         f"Ready - Model trained on {train_result['num_students']} students", 
                         COLOR_SUCCESS
                     ))
+                else:
+                    dialog.append("\n⚠ No faces extracted - cannot train model")
                 
                 dialog.append("\n✓ Processing complete!")
                 dialog.append("\n" + "="*60)
@@ -666,6 +696,70 @@ class CameraApp:
                 
             except Exception as e:
                 dialog.append(f"\n✗ Error: {str(e)}")
+                log_error("Download and process failed", e)
+                dialog.append("\n" + "="*60)
+                dialog.append("You may close this window now")
+                dialog.append("="*60)
+                dialog.enable_close()
+        
+        thread = threading.Thread(target=process, daemon=True)
+        thread.start()
+    
+    def _on_process_zips(self):
+        """Process zip files already in Downloaded_Faces folder."""
+        dialog = ProcessingDialog(self.root, "Process Downloaded Zip Files")
+        
+        def process():
+            try:
+                dialog.append("="*60)
+                dialog.append("PROCESSING DOWNLOADED ZIP FILES")
+                dialog.append("="*60)
+                
+                # Use ImageDownloadManager to extract existing zips
+                downloader = ImageDownloadManager(DOWNLOADS_DIR)
+                stats = downloader._extract_all_zips()
+                
+                if stats['extracted'] == 0:
+                    dialog.append("\n⚠ No zip files found in Downloaded_Faces folder")
+                    dialog.append("\nPlace zip files in 'Downloaded_Faces' folder")
+                    dialog.append("Format: StudentName_StudentID.zip")
+                    dialog.append("Example: Ahmed-Hassan_12345.zip")
+                else:
+                    dialog.append(f"\n✓ Extracted {stats['extracted']} zip files")
+                    if stats['invalid_format'] > 0:
+                        dialog.append(f"⚠  {stats['invalid_format']} invalid format")
+                    
+                    dialog.append("\n" + "="*60)
+                    dialog.append("EXTRACTING FACES")
+                    dialog.append("="*60)
+                    
+                    pipeline = FaceExtractionPipeline()
+                    face_stats = pipeline.run_pipeline()
+                    
+                    if face_stats['faces_extracted'] > 0:
+                        dialog.append("\n" + "="*60)
+                        dialog.append("TRAINING MODEL")
+                        dialog.append("="*60)
+                        
+                        train_result = self.service.train_model_now(
+                            progress_callback=dialog.append
+                        )
+                        
+                        dialog.append(f"\n✓ Training complete!")
+                        dialog.append(f"  Faces: {train_result['num_faces']}")
+                        dialog.append(f"  Students: {train_result['num_students']}")
+                        
+                        self.root.after(0, self._update_model_status)
+                        self.root.after(0, lambda: self.attendance_panel.enable("take_attendance"))
+                
+                dialog.append("\n" + "="*60)
+                dialog.append("You may close this window now")
+                dialog.append("="*60)
+                dialog.enable_close()
+                
+            except Exception as e:
+                dialog.append(f"\n✗ Error: {str(e)}")
+                log_error("Process zips failed", e)
                 dialog.append("\n" + "="*60)
                 dialog.append("You may close this window now")
                 dialog.append("="*60)

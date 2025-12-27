@@ -1,78 +1,60 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""
-AttendanceTracker.spec
-PyInstaller specification file for AttendanceTracker.
-"""
+from PyInstaller.utils.hooks import collect_all
+from PyInstaller.utils.hooks import copy_metadata
 
-import os
-from PyInstaller.utils.hooks import collect_data_files
+datas = []
+binaries = []
+hiddenimports = ['tensorflow', 'tensorflow.python', 'tensorflow.python.ops', 'keras_facenet', 'mtcnn', 'mtcnn.assets', 'cv2', 'numpy', 'PIL', 'PIL._tkinter_finder', 'openpyxl', 'openpyxl.cell._writer', 'sklearn', 'sklearn.utils._weight_vector', 'sklearn.neighbors._typedefs', 'sklearn.utils._typedefs', 'sklearn.metrics.pairwise', 'gdown', 'tqdm', 'queue', 'logging.handlers']
+datas += copy_metadata('tensorflow')
+datas += copy_metadata('keras-facenet')
+datas += copy_metadata('mtcnn')
+tmp_ret = collect_all('tensorflow')
+datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
+tmp_ret = collect_all('keras_facenet')
+datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
+tmp_ret = collect_all('mtcnn')
+datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 
-# Collect MTCNN and Keras-FaceNet data files
-mtcnn_datas = collect_data_files('mtcnn')
-keras_facenet_datas = collect_data_files('keras_facenet')
-
-block_cipher = None
 
 a = Analysis(
     ['main.py'],
     pathex=[],
-    binaries=[],
-    datas=[
-        ('settings_template.json', '.'),
-    ] + mtcnn_datas + keras_facenet_datas,  # ADD THIS LINE - includes model weights
-    hiddenimports=[
-        'tensorflow',
-        'keras_facenet',
-        'mtcnn',
-        'mtcnn.assets',  # ADD THIS - critical for MTCNN
-        'cv2',
-        'numpy',
-        'PIL',
-        'openpyxl',
-        'sklearn',
-        'sklearn.utils._weight_vector',
-        'sklearn.metrics.pairwise',  # ADD THIS - needed for cosine_similarity
-        'gdown',
-        'tqdm',
-    ],
+    binaries=binaries,
+    datas=datas,
+    hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
     excludes=[],
-    win_no_prefer_redirects=False,
-    win_private_assemblies=False,
-    cipher=block_cipher,
     noarchive=False,
+    optimize=0,
 )
-
-pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
+pyz = PYZ(a.pure)
 
 exe = EXE(
     pyz,
     a.scripts,
-    [],
+    [('v', None, 'OPTION')],
     exclude_binaries=True,
-    name='AttendanceTracker',
+    name='Attendio',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
-    console=False,  # Set to True to see console for debugging
+    upx=False,
+    console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon='logo.ico' if os.path.exists('logo.ico') else None,
+    icon=['logo.ico'],
 )
-
 coll = COLLECT(
     exe,
     a.binaries,
-    a.zipfiles,
     a.datas,
     strip=False,
-    upx=True,
+    upx=False,
     upx_exclude=[],
-    name='AttendanceTracker',
+    name='Attendio',
 )
