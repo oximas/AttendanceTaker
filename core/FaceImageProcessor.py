@@ -1,7 +1,7 @@
 """
-FaceImageProcessor.py
-Face image processing module.
-Handles cropping, resizing, and visual annotations for face images.
+core/FaceImageProcessor.py
+Fix: Adaptive text sizing based on face size to prevent overlap.
+Replace the entire file with this version.
 """
 
 import cv2
@@ -15,7 +15,7 @@ from config import (
 
 
 class FaceImageProcessor:
-    """Processes face images: cropping, resizing, and annotations."""
+    """Processes face images with adaptive text sizing for dense crowds."""
     
     @staticmethod
     def crop_face(image, box):
@@ -24,7 +24,7 @@ class FaceImageProcessor:
         
         Args:
             image: Source image
-            box: Bounding box - either (x1, y1, x2, y2) or (x, y, w, h) from MTCNN dict
+            box: Bounding box - either (x1, y1, x2, y2) or (x, y, w, h)
             
         Returns:
             Cropped face image or None if invalid
@@ -36,28 +36,21 @@ class FaceImageProcessor:
         
         x1, y1, param3, param4 = box
         
-        # If param3 and param4 are greater than x1 and y1, it's (x1, y1, x2, y2)
-        # Otherwise it's (x, y, w, h)
         if param3 > x1 and param4 > y1:
-            # (x1, y1, x2, y2) format
             x2 = param3
             y2 = param4
         else:
-            # (x, y, w, h) format - convert to (x1, y1, x2, y2)
             x2 = x1 + param3
             y2 = y1 + param4
         
-        # Clamp to image boundaries
         x1 = max(0, int(x1))
         y1 = max(0, int(y1))
         x2 = min(width, int(x2))
         y2 = min(height, int(y2))
         
-        # Ensure valid coordinates
         if x2 <= x1 or y2 <= y1:
             return None
         
-        # Crop using [y1:y2, x1:x2] - THIS IS THE KEY FIX
         face = image[y1:y2, x1:x2]
         return face if face.size > 0 else None
     
@@ -116,10 +109,44 @@ class FaceImageProcessor:
         return annotated
     
     @staticmethod
+    def calculate_adaptive_font_scale(box_width, box_height):
+        """
+        Calculate adaptive font scale based on face size.
+        Smaller faces get smaller text to prevent overlap.
+        
+        Args:
+            box_width: Width of bounding box
+            box_height: Height of bounding box
+            
+        Returns:
+            tuple: (font_scale, thickness)
+        """
+        # Calculate face size (use smaller dimension)
+        face_size = min(box_width, box_height)
+        
+        # Adaptive scaling
+        if face_size < 50:
+            # Tiny faces (lecture hall, far away)
+            return 0.3, 1
+        elif face_size < 80:
+            # Small faces
+            return 0.4, 1
+        elif face_size < 120:
+            # Medium faces
+            return 0.5, 1
+        elif face_size < 200:
+            # Large faces
+            return 0.7, 2
+        else:
+            # Very large faces (close-up)
+            return 0.9, 2
+    
+    @staticmethod
     def draw_text_with_background(image, text, position, 
                                   font_scale=TEXT_FONT_SCALE,
                                   text_color=TEXT_COLOR_BGR,
-                                  bg_color=TEXT_BG_COLOR_BGR):
+                                  bg_color=TEXT_BG_COLOR_BGR,
+                                  thickness=TEXT_THICKNESS):
         """
         Draw text with background rectangle for visibility.
         
@@ -130,13 +157,13 @@ class FaceImageProcessor:
             font_scale: Text scale
             text_color: Text color in BGR
             bg_color: Background color in BGR
+            thickness: Text thickness
         """
         font = TEXT_FONT
-        thickness = TEXT_THICKNESS
         text_size = cv2.getTextSize(text, font, font_scale, thickness)[0]
         
         x, y = position
-        padding = TEXT_PADDING
+        padding = max(2, int(TEXT_PADDING * font_scale))  # Adaptive padding
         
         # Background rectangle
         cv2.rectangle(image,
@@ -148,9 +175,26 @@ class FaceImageProcessor:
         cv2.putText(image, text, (x, y), font, font_scale, text_color, thickness)
     
     @staticmethod
+    def truncate_name(name, max_length=15):
+        """
+        Truncate long names to prevent overflow.
+        
+        Args:
+            name: Full name
+            max_length: Maximum characters
+            
+        Returns:
+            Truncated name with ellipsis if needed
+        """
+        if len(name) <= max_length:
+            return name
+        return name[:max_length-2] + ".."
+    
+    @staticmethod
     def add_labels_to_faces(image, boxes, labels):
         """
-        Add text labels above detected faces.
+        Add text labels above detected faces with adaptive sizing.
+        Prevents overlap by using smaller text for smaller faces.
         
         Args:
             image: Image to annotate
@@ -163,10 +207,40 @@ class FaceImageProcessor:
         labeled = image.copy()
         
         for (x1, y1, x2, y2), label in zip(boxes, labels):
-            # Position text above box
-            text_y = y1 - TEXT_Y_OFFSET if y1 > 40 else y1 + TEXT_Y_FALLBACK
+            # Calculate box dimensions
+            box_width = x2 - x1
+            box_height = y2 - y1
+            
+            # Get adaptive font scale based on face size
+            font_scale, thickness = FaceImageProcessor.calculate_adaptive_font_scale(
+                box_width, box_height
+            )
+            
+            # Truncate long names for small faces
+            if box_width < 100:
+                label = FaceImageProcessor.truncate_name(label, max_length=12)
+            elif box_width < 150:
+                label = FaceImageProcessor.truncate_name(label, max_length=20)
+            
+            # Calculate text position
+            # For small faces, put text inside top of box
+            # For larger faces, put text above box
+            if box_height < 60:
+                # Small face - text inside at top
+                text_y = int(y1 + 15 * font_scale)
+            else:
+                # Larger face - text above box
+                text_y = int(y1 - 5)
+            
+            # Ensure text stays within image bounds
+            text_y = max(15, text_y)
+            
             FaceImageProcessor.draw_text_with_background(
-                labeled, label, (int(x1), int(text_y))
+                labeled, 
+                label, 
+                (int(x1), text_y),
+                font_scale=font_scale,
+                thickness=thickness
             )
         
         return labeled

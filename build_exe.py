@@ -13,7 +13,7 @@ from pathlib import Path
 
 # Build configuration
 APP_NAME = "Attendio"
-VERSION = "0.9-beta"
+VERSION = "0.91-beta"
 ICON_FILE = "logo.ico"
 MAIN_SCRIPT = "main.py"
 

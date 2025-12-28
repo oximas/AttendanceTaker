@@ -1,7 +1,7 @@
 """
 ui/UIComponents.py
-Reusable UI Components for the face recognition system.
-Includes dialogs, status bars, image displays, and button panels.
+Reusable UI components including face naming dialog with proper name spacing preservation.
+Handles face naming, status bars, image displays, and button panels.
 """
 
 import tkinter as tk
@@ -15,7 +15,7 @@ from config import (
 
 
 class FaceNamingDialog:
-    """Dialog for naming unknown faces with both Name and ID."""
+    """Dialog for naming unknown faces with proper name spacing preservation."""
     
     def __init__(self, parent, face_images, on_save_callback=None):
         self.parent = parent
@@ -169,8 +169,9 @@ class FaceNamingDialog:
         self.image_label.image = photo
     
     def _submit_info(self):
-        """Submit the current student info."""
+        """Submit the current student info with PRESERVED SPACING."""
         student_id = self.id_entry.get().strip()
+        # KEEP EXACT NAME WITH SPACES - only strip leading/trailing
         student_name = self.name_entry.get().strip()
         
         # Validate inputs
@@ -197,9 +198,9 @@ class FaceNamingDialog:
             self.on_save_callback(face_img, student_id)
         
         self.student_ids.append(student_id)
-        self.student_names.append(student_name)
+        self.student_names.append(student_name)  # Name with spaces preserved
         
-        # Also add to database
+        # Also add to database with EXACT NAME
         from services.StudentDatabase import StudentDatabase
         db = StudentDatabase()
         db.add_student(student_id, student_name)
@@ -246,7 +247,6 @@ class StatusBar:
     def __init__(self, parent):
         from config import FONT_STATUS, COLOR_TEXT_PRIMARY, COLOR_PRIMARY_BG
         
-        # Create frame for better visibility
         self.frame = tk.Frame(parent, bg=COLOR_PRIMARY_BG, height=10)
         self.frame.pack(side=tk.BOTTOM, fill=tk.X, pady=0)
         
@@ -266,7 +266,7 @@ class StatusBar:
         """Update status message."""
         from config import COLOR_TEXT_PRIMARY
         self.label.config(text=message, fg=color or COLOR_TEXT_PRIMARY)
-        self.label.update_idletasks()  # Force immediate update
+        self.label.update_idletasks()
         self.frame.update_idletasks()
 
 
@@ -303,15 +303,12 @@ class ImageDisplay:
         if pil_image is None:
             return
         
-        # Get frame dimensions
         w = max(self.frame.winfo_width(), max_width)
         h = max(self.frame.winfo_height(), max_height)
         
-        # Resize to fit
         img_copy = pil_image.copy()
         img_copy.thumbnail((w - 20, h - 20), Image.Resampling.LANCZOS)
         
-        # Update display
         self.photo = ImageTk.PhotoImage(img_copy)
         self.label.config(image=self.photo, text="")
     

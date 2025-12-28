@@ -1,7 +1,7 @@
 """
 ui/AttendanceViewerDialog.py
-Attendance viewer dialog for viewing and exporting attendance records.
-Provides single-date and multi-date views with statistics.
+Attendance viewer dialog with search functionality.
+Allows viewing attendance records with date-based and student-based filtering.
 """
 
 import tkinter as tk
@@ -16,13 +16,14 @@ from config import (
 
 
 class AttendanceViewerDialog:
-    """Dialog for viewing attendance records."""
+    """Dialog for viewing attendance records with search."""
     
     def __init__(self, parent):
         self.parent = parent
         self.db = StudentDatabase()
-        self.view_mode = "single"  # "single" or "multi"
+        self.view_mode = "single"
         self.selected_date = None
+        self.all_data = []  # Store all data for filtering
         
         self._create_dialog()
         self._create_widgets()
@@ -32,7 +33,7 @@ class AttendanceViewerDialog:
         """Create main dialog window."""
         self.dialog = tk.Toplevel(self.parent)
         self.dialog.title("Attendance Records")
-        self.dialog.geometry("900x650")
+        self.dialog.geometry("900x700")
         self.dialog.configure(bg=COLOR_PRIMARY_BG)
         self.dialog.transient(self.parent)
         self.dialog.grab_set()
@@ -51,6 +52,9 @@ class AttendanceViewerDialog:
         
         # Controls frame
         self._create_controls()
+        
+        # Search bar (NEW)
+        self._create_search_bar()
         
         # View mode toggle
         self._create_view_toggle()
@@ -96,6 +100,38 @@ class AttendanceViewerDialog:
             padx=15,
             pady=5
         ).pack(side=tk.LEFT, padx=10)
+    
+    def _create_search_bar(self):
+        """Create search bar for filtering results."""
+        search_frame = tk.Frame(self.dialog, bg=COLOR_PRIMARY_BG)
+        search_frame.pack(pady=5, padx=20, fill=tk.X)
+        
+        tk.Label(
+            search_frame,
+            text="Search:",
+            font=FONT_LABEL,
+            bg=COLOR_PRIMARY_BG,
+            fg=COLOR_TEXT_PRIMARY
+        ).pack(side=tk.LEFT, padx=(0, 10))
+        
+        self.search_var = tk.StringVar()
+        self.search_var.trace('w', lambda *args: self._filter_results())
+        
+        search_entry = tk.Entry(
+            search_frame,
+            textvariable=self.search_var,
+            font=FONT_LABEL,
+            width=30
+        )
+        search_entry.pack(side=tk.LEFT, padx=5)
+        
+        tk.Label(
+            search_frame,
+            text="(Search by ID or Name)",
+            font=("Helvetica", 9),
+            bg=COLOR_PRIMARY_BG,
+            fg="#95a5a6"
+        ).pack(side=tk.LEFT, padx=5)
     
     def _create_view_toggle(self):
         """Create view mode toggle buttons."""
@@ -229,7 +265,6 @@ class AttendanceViewerDialog:
         if self.view_mode == "multi":
             self._show_multi_date_view()
         else:
-            # Clear and wait for user to select date
             self._clear_table()
             self.stats_label.config(text="Select a date to view attendance")
     
@@ -271,6 +306,9 @@ class AttendanceViewerDialog:
         present_count = 0
         total_count = len(attendance)
         
+        # Store all data for filtering
+        self.all_data = []
+        
         # Add rows
         for student_id, (name, present) in attendance.items():
             status = ATTENDANCE_MARK if present else "-"
@@ -281,7 +319,9 @@ class AttendanceViewerDialog:
             rate_data = self.db.get_student_attendance_rate(student_id)
             rate_str = f"{rate_data['present']}/{rate_data['total']} ({rate_data['rate']:.1f}%)"
             
-            self.tree.insert('', 'end', values=(student_id, name, status, rate_str))
+            row_data = (student_id, name, status, rate_str)
+            self.all_data.append(row_data)
+            self.tree.insert('', 'end', values=row_data)
         
         # Update statistics
         if total_count > 0:
@@ -305,14 +345,13 @@ class AttendanceViewerDialog:
             return
         
         # Configure columns (ID, Name, Date1, Date2, ... Rate)
-        columns = ['ID', 'Name'] + dates[-5:] + ['Rate']  # Show last 5 dates
+        columns = ['ID', 'Name'] + dates[-5:] + ['Rate']
         self.tree['columns'] = columns
         
         self.tree.heading('ID', text='ID')
         self.tree.heading('Name', text='Name')
         
         for date in dates[-5:]:
-            # Shorten date display if needed
             display_date = date[-5:] if len(date) > 10 else date
             self.tree.heading(date, text=display_date)
             self.tree.column(date, width=70, anchor='center')
@@ -329,6 +368,9 @@ class AttendanceViewerDialog:
         # Get all students
         students = self.db.get_all_students()
         
+        # Store all data for filtering
+        self.all_data = []
+        
         # Add rows
         for student_id, name in students:
             row_data = [student_id, name]
@@ -344,11 +386,34 @@ class AttendanceViewerDialog:
             rate_str = f"{rate_data['rate']:.1f}%"
             row_data.append(rate_str)
             
+            self.all_data.append(tuple(row_data))
             self.tree.insert('', 'end', values=row_data)
         
         # Update statistics
         stats_text = f"Viewing last {min(5, len(dates))} dates  |  Total students: {len(students)}"
         self.stats_label.config(text=stats_text)
+    
+    def _filter_results(self):
+        """Filter displayed results based on search query."""
+        query = self.search_var.get().lower()
+        
+        # Clear table
+        self._clear_table()
+        
+        # If no query, show all data
+        if not query:
+            for row_data in self.all_data:
+                self.tree.insert('', 'end', values=row_data)
+            return
+        
+        # Filter and display matching rows
+        for row_data in self.all_data:
+            # Search in ID (first column) and Name (second column)
+            student_id = str(row_data[0]).lower()
+            name = str(row_data[1]).lower()
+            
+            if query in student_id or query in name:
+                self.tree.insert('', 'end', values=row_data)
     
     def _clear_table(self):
         """Clear all items from table."""

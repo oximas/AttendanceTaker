@@ -152,6 +152,7 @@ class FaceRecognizer:
     def _process_person_images(self, person_id, progress_callback=None):
         """
         Load and process all saved images for a person.
+        FIXED: Skip detection since saved images are already cropped faces.
         
         Args:
             person_id: Student ID
@@ -170,31 +171,17 @@ class FaceRecognizer:
         
         for img, img_path in images:
             try:
-                # Use detect() for consistency with extraction pipeline
-                count, boxes = self.detector.detect(img)
+                # CRITICAL FIX: Don't re-detect faces!
+                # These images are already cropped faces from Faces/ folder
+                # Just resize and generate embedding directly
                 
-                if count == 0:
-                    log_debug(f"No face detected in {img_path}")
-                    continue
-                
-                if count > 1:
-                    log_debug(f"Multiple faces in {img_path}, using first")
-                
-                # Use first detected face
-                box = boxes[0]
-                
-                # Crop and resize
-                face = self.processor.crop_face(img, box)
-                if face is None:
-                    log_debug(f"Failed to crop face from {img_path}")
-                    continue
-                
-                face = self.processor.resize_face(face)
+                # Resize to FaceNet input size (160x160)
+                face = self.processor.resize_face(img)
                 if face is None:
                     log_debug(f"Failed to resize face from {img_path}")
                     continue
                 
-                # Generate embedding
+                # Generate embedding directly
                 embedding = self.embedding_gen.generate(face)
                 if embedding is not None:
                     embeddings.append(embedding)
